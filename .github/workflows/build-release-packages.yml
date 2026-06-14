@@ -1,0 +1,133 @@
+name: Build Release Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          npm --prefix apps/web ci
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/api/requirements.txt pyinstaller
+
+      - name: Build web and API
+        shell: pwsh
+        run: |
+          npm --prefix apps/web run build
+          pyinstaller --onefile --name stock-platform-api --paths apps/api scripts/runtime/api_server.py
+
+      - name: Package Windows bundle
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $pkg = "dist/stock-trading-platform-next-$version-windows-x64"
+          New-Item -ItemType Directory -Force -Path "$pkg/api", "$pkg/runtime/node", "$pkg/storage/templates" | Out-Null
+          Copy-Item dist/stock-platform-api.exe "$pkg/api/stock-platform-api.exe"
+          Copy-Item (Get-Command node).Source "$pkg/runtime/node/node.exe"
+          Copy-Item storage/templates/* "$pkg/storage/templates/" -Recurse
+          Copy-Item apps/web/.next/standalone "$pkg/web" -Recurse
+          New-Item -ItemType Directory -Force -Path "$pkg/web/.next" | Out-Null
+          Copy-Item apps/web/.next/static "$pkg/web/.next/static" -Recurse
+          Copy-Item apps/web/public "$pkg/web/public" -Recurse
+          Copy-Item scripts/windows/Start-StockPlatform.ps1 "$pkg/Start-StockPlatform.ps1"
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -Confirm:$false
+          Invoke-ps2exe `
+            -inputFile scripts/windows/Start-StockPlatform.ps1 `
+            -outputFile "$pkg/启动股票交易平台.exe" `
+            -title "股票交易平台启动器" `
+            -description "启动本地股票交易平台网页端" `
+            -noConsole:$false
+          Compress-Archive -Path "$pkg/*" -DestinationPath "$pkg.zip" -Force
+
+      - name: Attach Windows bundle to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/stock-trading-platform-next-${{ github.ref_name }}-windows-x64.zip
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          npm --prefix apps/web ci
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/api/requirements.txt pyinstaller
+
+      - name: Build web and API
+        run: |
+          npm --prefix apps/web run build
+          pyinstaller --onefile --name stock-platform-api --paths apps/api scripts/runtime/api_server.py
+
+      - name: Package macOS bundle
+        run: |
+          version="${GITHUB_REF_NAME}"
+          pkg="dist/stock-trading-platform-next-${version}-macos-${{ matrix.arch }}"
+          mkdir -p "$pkg/api" "$pkg/runtime/node" "$pkg/storage/templates"
+          cp dist/stock-platform-api "$pkg/api/stock-platform-api"
+          cp "$(command -v node)" "$pkg/runtime/node/node"
+          cp -R storage/templates/. "$pkg/storage/templates/"
+          cp -R apps/web/.next/standalone "$pkg/web"
+          mkdir -p "$pkg/web/.next"
+          cp -R apps/web/.next/static "$pkg/web/.next/static"
+          cp -R apps/web/public "$pkg/web/public"
+          cp scripts/macos/Start-StockPlatform.command "$pkg/启动股票交易平台.command"
+          chmod +x "$pkg/api/stock-platform-api" "$pkg/runtime/node/node" "$pkg/启动股票交易平台.command"
+          (cd dist && zip -r "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}.zip" "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}")
+
+      - name: Attach macOS bundle to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/stock-trading-platform-next-${{ github.ref_name }}-macos-${{ matrix.arch }}.zip

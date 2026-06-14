@@ -1,90 +1,128 @@
 # 股票交易平台 Next
 
-一个新的独立项目骨架，当前 Streamlit 项目不参与改动。
+这是一个本地运行的股票研究和交易辅助工具。它会在你的电脑上打开一个网页界面，用来查看自选股、K 线图、账户概览、策略信号、回测结果和 AI 建议。
 
-## 技术栈
+数据默认保存在你自己的电脑里，不会自动上传到云端。公开版本只带示例数据，不包含作者的真实账户、持仓、交易记录或 API 密钥。
 
-- `apps/web`: Next.js + TypeScript + shadcn/ui + Tailwind CSS v4
-- `apps/api`: FastAPI + SQLite + yfinance 可选行情源
-- `storage/templates`: 可提交到 GitHub 的公开示例数据
-- `storage/local`: 本地私有数据目录，已被 `.gitignore` 忽略
+## 适合谁使用
 
-## 第一版范围
+- 想用网页界面管理自选股和交易记录的人。
+- 想查看日 K、周 K、月 K、1 日分时、5 日分时的人。
+- 想在本地保存自己的交易数据，不想把私密数据提交到网上的人。
+- 不熟悉命令行也可以使用：下载对应系统的压缩包，解压后双击启动。
 
-- 日K、周K、月K、1日分时、五日分时
-- 自选股列表
-- 行情报价接口
-- 本地私有数据和公开模板数据分离
+## 下载哪个文件
 
-## 本地运行
+请到 Release 页面下载：
 
-```bash
-cd /Users/yaochengzhi/Documents/股票交易平台-next
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r apps/api/requirements.txt
-npm --prefix apps/web install
-```
+https://github.com/maoqiu77/stock-trading-platform-next/releases
 
-两个终端分别启动：
+根据自己的电脑选择一个压缩包：
 
-```bash
-npm run dev:api
-npm run dev:web
-```
+- Windows 电脑：下载 `stock-trading-platform-next-v0.1.0-windows-x64.zip`
+- Apple 芯片 Mac（M1/M2/M3/M4）：下载 `stock-trading-platform-next-v0.1.0-macos-arm64.zip`
+- Intel 芯片 Mac：下载 `stock-trading-platform-next-v0.1.0-macos-x64.zip`
 
-默认访问：
+不要下载 GitHub 自动生成的 `Source code (zip)`，那个是给开发者看的源码包，不是一键运行包。
 
-- Web: http://localhost:3000
-- API: http://127.0.0.1:8000/health
+## Windows 使用方法
 
-手机或同一局域网设备访问时，用电脑的局域网地址打开 Web 端，例如：
+1. 下载 `stock-trading-platform-next-v0.1.0-windows-x64.zip`。
+2. 右键压缩包，选择“全部解压”。
+3. 打开解压后的文件夹。
+4. 双击 `启动股票交易平台.exe`。
+5. 等待浏览器自动打开 `http://127.0.0.1:3000/`。
+
+启动后不要关闭黑色窗口。关闭窗口后，本地服务也会停止。
+
+## Mac 使用方法
+
+1. 下载适合自己芯片的 macOS 压缩包。
+2. 双击压缩包解压。
+3. 打开解压后的文件夹。
+4. 双击 `启动股票交易平台.command`。
+5. 等待浏览器自动打开 `http://127.0.0.1:3000/`。
+
+如果 macOS 提示无法打开：
+
+1. 右键点击 `启动股票交易平台.command`。
+2. 选择“打开”。
+3. 在弹窗里再次选择“打开”。
+
+启动后不要关闭终端窗口。关闭窗口后，本地服务也会停止。
+
+## 手机或平板访问
+
+电脑启动成功后，手机和电脑连接同一个 Wi-Fi，可以用手机浏览器访问电脑的局域网地址：
 
 ```text
 http://<电脑局域网 IP>:3000
 ```
 
-前端默认通过同源 `/api` 访问后端，Next.js 会代理到本机 FastAPI。也可以设置 `BACKEND_API_URL` 覆盖代理目标。
+例如电脑 IP 是 `192.168.1.20`，就在手机浏览器打开：
 
-## Windows 一键启动
+```text
+http://192.168.1.20:3000
+```
 
-Release 包会包含 `Start-StockPlatform.ps1`，并通过 GitHub Actions 构建
-`StockTradingPlatform-Launcher.exe`。
+这是响应式网页端，不是原生 iOS/Android App。
 
-在 Windows 上把 release zip 解压后，把 `.exe` 放在项目根目录并双击。启动器会：
+## 数据保存在哪里
 
-- 检查 Node.js、npm、Python；缺失时优先用 `winget` 安装。
-- 创建 `.venv` 并安装 `apps/api/requirements.txt`。
-- 执行 `npm --prefix apps/web install`。
-- 启动 FastAPI 和 Next.js，然后打开 `http://127.0.0.1:3000/`。
+你的本地数据会保存在解压文件夹里的：
 
-如果电脑没有 `winget` 或安装权限，启动器会打开对应下载页，需要手动安装 Node.js LTS 和 Python 3。
+```text
+storage/local/
+```
 
-## 隐私边界
+这个文件夹可能包含你的账户金额、持仓、交易记录、AI 设置等私密数据。备份或分享项目时，不要把 `storage/local/` 发给别人。
 
-可以提交到 GitHub：
+公开示例数据在：
 
-- `apps/**`
-- `storage/templates/**`
-- `docs/**`
-- `.env.example`
+```text
+storage/templates/
+```
 
-不能提交：
+## 常见问题
 
-- `storage/local/**`
-- `.env`、`.env.local`、`.env.*`
-- `*.db`、`*.sqlite`
-- `config.local.*`
+### 双击后浏览器没有打开
 
-提交前可运行：
+先等 1 分钟。如果还没有打开，可以手动访问：
+
+```text
+http://127.0.0.1:3000/
+```
+
+### 提示端口被占用
+
+说明电脑上已经有别的程序占用了 `3000` 或 `8000` 端口。可以先关闭旧的启动窗口，或者重启电脑后再试。
+
+### Windows 提示有安全风险
+
+这是因为启动器不是商店应用，也没有代码签名。请确认文件来自本项目 Release 页面后再运行。
+
+### Mac 提示无法验证开发者
+
+这是因为启动器没有 Apple 开发者签名。请使用“右键 → 打开”的方式启动。
+
+## 给开发者
+
+如果你想从源码运行：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r apps/api/requirements.txt
+npm --prefix apps/web install
+npm run dev:api
+npm run dev:web
+```
+
+发布前检查：
 
 ```bash
 npm run check:public-safety
 npm run check:release-readiness
-```
-
-创建公开源码压缩包：
-
-```bash
-npm run release:archive -- v0.1.0
+npm --prefix apps/web run lint
+npm --prefix apps/web run build
 ```

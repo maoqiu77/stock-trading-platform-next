@@ -63,6 +63,8 @@ def iter_files() -> list[Path]:
 def main() -> int:
     failures: list[str] = []
     for path in candidate_files():
+        if not path.exists():
+            continue
         rel = path.relative_to(ROOT).as_posix()
         if rel in SKIP_FILES:
             continue

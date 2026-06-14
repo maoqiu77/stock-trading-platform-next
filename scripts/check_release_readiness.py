@@ -10,6 +10,9 @@ CLIENT_API_FILES = [
     ROOT / "apps/web/src/features/platform/api.ts",
 ]
 NEXT_CONFIG = ROOT / "apps/web/next.config.ts"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/build-release-packages.yml"
+MACOS_LAUNCHER = ROOT / "scripts/macos/Start-StockPlatform.command"
+WINDOWS_LAUNCHER = ROOT / "scripts/windows/Start-StockPlatform.ps1"
 
 
 def main() -> int:
@@ -26,6 +29,7 @@ def main() -> int:
 
     next_config = NEXT_CONFIG.read_text(encoding="utf-8")
     required_snippets = [
+        'output: "standalone"',
         "async rewrites()",
         "process.env.BACKEND_API_URL",
         "source: \"/api/:path*\"",
@@ -34,6 +38,25 @@ def main() -> int:
     for snippet in required_snippets:
         if snippet not in next_config:
             failures.append(f"apps/web/next.config.ts missing {snippet}")
+
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    workflow_snippets = [
+        "stock-trading-platform-next-${{ github.ref_name }}-windows-x64.zip",
+        "stock-trading-platform-next-${{ github.ref_name }}-macos-${{ matrix.arch }}.zip",
+        "启动股票交易平台.exe",
+        "启动股票交易平台.command",
+        "pyinstaller --onefile",
+    ]
+    for snippet in workflow_snippets:
+        if snippet not in workflow:
+            failures.append(f".github/workflows/build-release-packages.yml missing {snippet}")
+
+    if "StockTradingPlatform-Launcher.exe" in workflow:
+        failures.append("release workflow still uploads a standalone launcher exe")
+
+    for launcher in [MACOS_LAUNCHER, WINDOWS_LAUNCHER]:
+        if not launcher.exists():
+            failures.append(f"missing launcher: {launcher.relative_to(ROOT)}")
 
     if failures:
         print("Release readiness check failed:")
