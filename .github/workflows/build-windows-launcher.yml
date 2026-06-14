@@ -17,7 +17,8 @@ jobs:
       - name: Build EXE from PowerShell launcher
         shell: pwsh
         run: |
-          Install-Module ps2exe -Scope CurrentUser -Force
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -Confirm:$false
           Invoke-ps2exe `
             -inputFile scripts/windows/Start-StockPlatform.ps1 `
             -outputFile StockTradingPlatform-Launcher.exe `
