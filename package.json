@@ -1,0 +1,19 @@
+{
+  "name": "stock-trading-platform-next",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "setup:api": "python3 -m venv .venv && .venv/bin/pip install -r apps/api/requirements.txt",
+    "dev": "npm run dev:api",
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:api": ".venv/bin/python -m uvicorn app.main:app --reload --reload-dir apps/api --app-dir apps/api",
+    "build": "npm --prefix apps/web run build",
+    "lint": "npm --prefix apps/web run lint",
+    "check:release-readiness": "python3 scripts/check_release_readiness.py",
+    "check:public-safety": "python3 scripts/check_public_safety.py",
+    "release:archive": "bash scripts/create_release_archive.sh"
+  }
+}

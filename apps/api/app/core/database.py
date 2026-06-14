@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from app.core.settings import DB_PATH, TEMPLATE_HOME
+
+
+def connect() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db() -> None:
+    with connect() as connection:
+        connection.execute(
+            """
+            create table if not exists watchlist (
+              ticker text primary key,
+              name text not null,
+              market text not null,
+              sort_order integer not null default 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists app_state (
+              key text primary key,
+              payload text not null,
+              updated_at text not null default current_timestamp
+            )
+            """
+        )
+        existing = connection.execute("select count(*) from watchlist").fetchone()[0]
+        if existing == 0:
+            seed_watchlist(connection, TEMPLATE_HOME / "watchlist.example.json")
+
+
+def seed_watchlist(connection: sqlite3.Connection, template_path: Path) -> None:
+    if not template_path.exists():
+        return
+
+    rows: list[dict[str, Any]] = json.loads(template_path.read_text(encoding="utf-8"))
+    for index, item in enumerate(rows):
+        connection.execute(
+            """
+            insert or ignore into watchlist (ticker, name, market, sort_order)
+            values (?, ?, ?, ?)
+            """,
+            (
+                item["ticker"].upper(),
+                item["name"],
+                item.get("market", "UNKNOWN"),
+                index,
+            ),
+        )
+
+
+def get_watchlist() -> list[dict[str, Any]]:
+    init_db()
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            select ticker, name, market
+            from watchlist
+            order by sort_order asc, ticker asc
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_state_payload(key: str) -> str | None:
+    init_db()
+    with connect() as connection:
+        row = connection.execute(
+            "select payload from app_state where key = ?",
+            (key,),
+        ).fetchone()
+    return str(row["payload"]) if row else None
+
+
+def set_state_payload(key: str, payload: str) -> None:
+    init_db()
+    with connect() as connection:
+        connection.execute(
+            """
+            insert into app_state (key, payload, updated_at)
+            values (?, ?, current_timestamp)
+            on conflict(key) do update set
+              payload = excluded.payload,
+              updated_at = current_timestamp
+            """,
+            (key, payload),
+        )
+
+
+def delete_state_payload(key: str) -> None:
+    init_db()
+    with connect() as connection:
+        connection.execute("delete from app_state where key = ?", (key,))
