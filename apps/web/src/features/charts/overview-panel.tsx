@@ -12,21 +12,30 @@ import {
   formatPrice,
   getChangeClass,
 } from "@/features/charts/format";
+import { formatMoney, formatRatio } from "@/features/platform/trading-data";
 import type { Quote } from "@/features/charts/types";
 import { cn } from "@/lib/utils";
 
 export function OverviewPanel({
   quotes,
+  holdingCost,
+  holdingValue,
 }: {
   quotes: Quote[];
+  holdingCost?: number;
+  holdingValue?: number;
 }) {
   const gainers = quotes.filter((quote) => quote.changePercent > 0).length;
   const decliners = quotes.filter((quote) => quote.changePercent < 0).length;
   const flat = Math.max(quotes.length - gainers - decliners, 0);
-  const averageChange = quotes.length
-    ? quotes.reduce((total, quote) => total + quote.changePercent, 0) /
-      quotes.length
-    : undefined;
+  const totalReturn =
+    holdingCost && holdingCost > 0 && holdingValue !== undefined
+      ? (holdingValue - holdingCost) / holdingCost
+      : undefined;
+  const totalPnl =
+    holdingCost && holdingCost > 0 && holdingValue !== undefined
+      ? holdingValue - holdingCost
+      : undefined;
   const sorted = [...quotes].sort(
     (first, second) => second.changePercent - first.changePercent
   );
@@ -49,10 +58,10 @@ export function OverviewPanel({
           detail={`上涨 ${gainers} · 下跌 ${decliners} · 平盘 ${flat}`}
         />
         <OverviewMetric
-          label="平均涨跌"
-          value={formatPercent(averageChange)}
-          detail="当前 watchlist 等权计算"
-          valueClassName={getChangeClass(averageChange)}
+          label="总收益"
+          value={formatTotalReturn(totalReturn, totalPnl)}
+          detail="按持仓市值和持仓成本计算"
+          valueClassName={getChangeClass(totalReturn)}
         />
         <QuoteMetric
           label="领涨"
@@ -67,6 +76,14 @@ export function OverviewPanel({
       </CardContent>
     </Card>
   );
+}
+
+function formatTotalReturn(returnValue?: number, pnl?: number) {
+  if (returnValue === undefined || pnl === undefined || Number.isNaN(returnValue)) {
+    return "--";
+  }
+
+  return `${formatRatio(returnValue)}（${formatMoney(pnl)}）`;
 }
 
 function OverviewMetric({

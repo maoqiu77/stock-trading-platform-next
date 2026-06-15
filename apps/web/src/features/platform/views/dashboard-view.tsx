@@ -106,7 +106,11 @@ export function DashboardView({
       {quotesQuery.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : (
-        <OverviewPanel quotes={quotes} />
+        <OverviewPanel
+          quotes={quotes}
+          holdingCost={holdingCost}
+          holdingValue={holdingValue}
+        />
       )}
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card>
