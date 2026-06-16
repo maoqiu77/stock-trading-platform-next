@@ -3,9 +3,10 @@ import {
   type DerivedPosition,
   type TradingDataState,
 } from "@/features/platform/trading-data";
-import { resolveApiBaseUrl } from "@/features/platform/api-base-url";
 
-const API_BASE_URL = resolveApiBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
+  "";
 
 export type TradingStateResponse = {
   state: TradingDataState;
