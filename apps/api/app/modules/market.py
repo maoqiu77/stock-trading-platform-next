@@ -19,7 +19,7 @@ NASDAQ_HEADERS = {
 }
 NASDAQ_KNOWN_ETFS = {"QQQM", "VOO"}
 YFINANCE_RATE_LIMITED_UNTIL: Optional[datetime] = None
-NASDAQ_CACHE_TTL = timedelta(minutes=2)
+NASDAQ_CACHE_TTL = timedelta(seconds=15)
 NASDAQ_JSON_CACHE: dict[str, tuple[datetime, Any]] = {}
 REGULAR_SESSION_OPEN = time(hour=9, minute=30)
 REGULAR_SESSION_CLOSE = time(hour=16)
@@ -45,12 +45,21 @@ SAMPLE_PRICE_ANCHORS = {
 }
 
 
-def get_quotes(symbols: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def get_quotes(
+    symbols: list[dict[str, Any]],
+    *,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
     tickers = [item["ticker"] for item in symbols]
-    provider_quotes = _try_nasdaq_quotes(tickers)
+    provider_quotes = _try_yahoo_quotes(tickers, force_refresh=force_refresh)
     missing_tickers = [ticker for ticker in tickers if ticker not in provider_quotes]
     if missing_tickers:
         provider_quotes.update(_try_yfinance_quotes(missing_tickers))
+    missing_tickers = [ticker for ticker in tickers if ticker not in provider_quotes]
+    if missing_tickers:
+        provider_quotes.update(
+            _try_nasdaq_quotes(missing_tickers, force_refresh=force_refresh)
+        )
 
     quotes: list[dict[str, Any]] = []
     for item in symbols:
@@ -68,28 +77,39 @@ def get_quotes(symbols: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return quotes
 
 
-def get_chart(ticker: str, range_: str, interval: str) -> dict[str, Any]:
+def get_chart(
+    ticker: str,
+    range_: str,
+    interval: str,
+    *,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
     if range_ not in VALID_RANGES:
         range_ = "1y"
     if interval not in VALID_INTERVALS:
         interval = "1d"
     is_intraday = interval not in {"1d", "1wk", "1mo"}
 
-    if is_intraday and range_ == "1d":
-        chart = _try_nasdaq_intraday_chart(ticker, range_, interval)
-    elif is_intraday:
-        chart = _try_yahoo_chart(ticker, range_, interval)
-    else:
-        chart = _try_nasdaq_chart(ticker, range_, interval)
+    chart = _try_yahoo_chart(
+        ticker, range_, interval, force_refresh=force_refresh
+    )
+    if chart:
+        return chart
+
+    chart = _try_yfinance_chart(ticker, range_, interval)
     if chart:
         return chart
 
     if is_intraday and range_ == "1d":
-        chart = _try_yahoo_chart(ticker, range_, interval)
-        if chart:
-            return chart
-
-    chart = _try_yfinance_chart(ticker, range_, interval)
+        chart = _try_nasdaq_intraday_chart(
+            ticker, range_, interval, force_refresh=force_refresh
+        )
+    elif is_intraday:
+        chart = None
+    else:
+        chart = _try_nasdaq_chart(
+            ticker, range_, interval, force_refresh=force_refresh
+        )
     if chart:
         return chart
 
@@ -102,6 +122,52 @@ def get_chart(ticker: str, range_: str, interval: str) -> dict[str, Any]:
         )
 
     return _sample_chart(ticker, range_, interval)
+
+
+def _try_yahoo_quotes(
+    tickers: list[str],
+    *,
+    force_refresh: bool = False,
+) -> dict[str, dict[str, Any]]:
+    symbols = [ticker.upper() for ticker in tickers]
+    if not symbols:
+        return {}
+
+    query = parse.urlencode({"symbols": ",".join(symbols)})
+    url = f"https://query1.finance.yahoo.com/v7/finance/quote?{query}"
+    try:
+        payload = _fetch_json(url, timeout=8, force_refresh=force_refresh)
+    except (OSError, error.URLError, json.JSONDecodeError):
+        return {}
+
+    response = payload.get("quoteResponse") if isinstance(payload, dict) else None
+    results = response.get("result") if isinstance(response, dict) else None
+    if not isinstance(results, list):
+        return {}
+
+    quotes: dict[str, dict[str, Any]] = {}
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        ticker = str(result.get("symbol") or "").upper()
+        if ticker not in symbols:
+            continue
+        price = _parse_market_number(result.get("regularMarketPrice"))
+        if price is None:
+            continue
+        change = _parse_market_number(result.get("regularMarketChange")) or 0.0
+        change_percent = (
+            _parse_market_number(result.get("regularMarketChangePercent")) or 0.0
+        )
+        volume = int(_parse_market_number(result.get("regularMarketVolume")) or 0)
+        quotes[ticker] = {
+            "price": round(price, 2),
+            "change": round(change, 2),
+            "changePercent": round(change_percent, 2),
+            "volume": volume,
+            "source": "yahoo",
+        }
+    return quotes
 
 
 def _try_yfinance_quotes(tickers: list[str]) -> dict[str, dict[str, Any]]:
@@ -132,7 +198,7 @@ def _try_yfinance_quotes(tickers: list[str]) -> dict[str, dict[str, Any]]:
                 "change": round(change, 2),
                 "changePercent": round(change_percent, 2),
                 "volume": int(last.get("Volume", 0)),
-                "source": "yfinance",
+                "source": "yahoo",
             }
         except Exception as exc:
             if exc.__class__.__name__ == "YFRateLimitError":
@@ -142,34 +208,51 @@ def _try_yfinance_quotes(tickers: list[str]) -> dict[str, dict[str, Any]]:
     return quotes
 
 
-def _try_nasdaq_quotes(tickers: list[str]) -> dict[str, dict[str, Any]]:
+def _try_nasdaq_quotes(
+    tickers: list[str],
+    *,
+    force_refresh: bool = False,
+) -> dict[str, dict[str, Any]]:
     quotes: dict[str, dict[str, Any]] = {}
     if not tickers:
         return quotes
     max_workers = min(len(tickers), 6)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for ticker, quote in executor.map(_fetch_first_nasdaq_quote, tickers):
+        tasks = ((ticker, force_refresh) for ticker in tickers)
+        for ticker, quote in executor.map(_fetch_first_nasdaq_quote, tasks):
             if quote:
                 quotes[ticker] = quote
     return quotes
 
 
-def _fetch_first_nasdaq_quote(ticker: str) -> tuple[str, Optional[dict[str, Any]]]:
+def _fetch_first_nasdaq_quote(
+    task: tuple[str, bool],
+) -> tuple[str, Optional[dict[str, Any]]]:
+    ticker, force_refresh = task
     for asset_class in _nasdaq_asset_classes(ticker):
-        quote = _fetch_nasdaq_quote(ticker, asset_class)
+        quote = _fetch_nasdaq_quote(
+            ticker,
+            asset_class,
+            force_refresh=force_refresh,
+        )
         if quote:
             return ticker, quote
     return ticker, None
 
 
-def _fetch_nasdaq_quote(ticker: str, asset_class: str) -> Optional[dict[str, Any]]:
+def _fetch_nasdaq_quote(
+    ticker: str,
+    asset_class: str,
+    *,
+    force_refresh: bool = False,
+) -> Optional[dict[str, Any]]:
     encoded_ticker = parse.quote(ticker.upper())
     url = (
         f"https://api.nasdaq.com/api/quote/{encoded_ticker}/info"
         f"?assetclass={asset_class}"
     )
     try:
-        payload = _fetch_json(url, timeout=5)
+        payload = _fetch_json(url, timeout=5, force_refresh=force_refresh)
     except (OSError, error.URLError, json.JSONDecodeError):
         return None
 
@@ -273,18 +356,129 @@ def _try_yfinance_chart(
         "interval": interval,
         "seriesType": series_type,
         "timezone": timezone_name,
-        "source": "yfinance",
+        "source": "yahoo",
         "lastUpdated": datetime.now(timezone.utc).isoformat(),
         "bars": bars,
     }
 
 
 def _try_yahoo_chart(
-    ticker: str, range_: str, interval: str
+    ticker: str,
+    range_: str,
+    interval: str,
+    *,
+    force_refresh: bool = False,
 ) -> Optional[dict[str, Any]]:
     if interval in {"1d", "1wk", "1mo"}:
+        return _try_yahoo_history_chart(
+            ticker,
+            range_,
+            interval,
+            force_refresh=force_refresh,
+        )
+
+    payload = _fetch_yahoo_chart_payload(
+        ticker,
+        range_,
+        interval,
+        force_refresh=force_refresh,
+    )
+    parsed = _parse_yahoo_chart_bars(payload, ticker, interval)
+    if not parsed:
         return None
 
+    timezone_name, bars = parsed
+    if not bars:
+        return None
+
+    return {
+        "ticker": ticker.upper(),
+        "range": range_,
+        "interval": interval,
+        "seriesType": "line" if range_ == "5d" else "candlestick",
+        "timezone": timezone_name,
+        "source": "yahoo",
+        "lastUpdated": datetime.now(timezone.utc).isoformat(),
+        "bars": bars,
+    }
+
+
+def _try_yahoo_history_chart(
+    ticker: str,
+    range_: str,
+    interval: str,
+    *,
+    force_refresh: bool = False,
+) -> Optional[dict[str, Any]]:
+    base_payload = _fetch_yahoo_chart_payload(
+        ticker,
+        range_,
+        "1d",
+        force_refresh=force_refresh,
+    )
+    base_parsed = _parse_yahoo_chart_bars(base_payload, ticker, "1d")
+    if not base_parsed:
+        return None
+
+    timezone_name, daily_bars = base_parsed
+    tail_payload = _fetch_yahoo_chart_payload(
+        ticker,
+        "1mo",
+        "1mo",
+        force_refresh=force_refresh,
+    )
+    tail_parsed = _parse_yahoo_chart_bars(tail_payload, ticker, "1mo")
+    if tail_parsed:
+        tail_timezone_name, tail_bars = tail_parsed
+        timezone_name = tail_timezone_name or timezone_name
+        daily_bars = _merge_daily_bars(daily_bars, tail_bars)
+
+    if interval == "1d":
+        bars = daily_bars
+    elif interval == "1wk":
+        bars = _aggregate_daily_bars(daily_bars, "week")
+    else:
+        bars = _aggregate_daily_bars(daily_bars, "month")
+
+    if not bars:
+        return None
+
+    return {
+        "ticker": ticker.upper(),
+        "range": range_,
+        "interval": interval,
+        "seriesType": "candlestick",
+        "timezone": timezone_name,
+        "source": "yahoo",
+        "lastUpdated": datetime.now(timezone.utc).isoformat(),
+        "bars": bars,
+    }
+
+
+def _merge_daily_bars(
+    daily_bars: list[dict[str, Any]],
+    tail_bars: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for bar in daily_bars:
+        time_value = str(bar.get("time") or "")
+        if time_value:
+            merged[time_value] = bar
+    latest_time = max(merged) if merged else ""
+    for bar in tail_bars:
+        time_value = str(bar.get("time") or "")
+        if time_value and time_value > latest_time and time_value not in merged:
+            merged[time_value] = bar
+    return sorted(merged.values(), key=lambda bar: str(bar.get("time") or ""))
+
+
+def _fetch_yahoo_chart_payload(
+    ticker: str,
+    range_: str,
+    interval: str,
+    *,
+    force_refresh: bool = False,
+) -> Any:
     encoded_ticker = parse.quote(ticker.upper())
     query = parse.urlencode(
         {
@@ -296,10 +490,16 @@ def _try_yahoo_chart(
     )
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_ticker}?{query}"
     try:
-        payload = _fetch_json(url, timeout=8)
+        return _fetch_json(url, timeout=8, force_refresh=force_refresh)
     except (OSError, error.URLError, json.JSONDecodeError):
         return None
 
+
+def _parse_yahoo_chart_bars(
+    payload: Any,
+    ticker: str,
+    interval: str,
+) -> Optional[tuple[str, list[dict[str, Any]]]]:
     chart = payload.get("chart") if isinstance(payload, dict) else None
     results = chart.get("result") if isinstance(chart, dict) else None
     if not isinstance(results, list) or not results:
@@ -318,13 +518,14 @@ def _try_yahoo_chart(
     meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
     timezone_name = str(meta.get("exchangeTimezoneName") or _infer_market_timezone(ticker))
     market_zone = ZoneInfo(timezone_name)
+    is_intraday = interval not in {"1d", "1wk", "1mo"}
     bars: list[dict[str, Any]] = []
     for index, raw_timestamp in enumerate(timestamps):
         timestamp = _parse_epoch_seconds(raw_timestamp)
         if timestamp is None:
             continue
         market_time = timestamp.astimezone(market_zone).time()
-        if not (REGULAR_SESSION_OPEN <= market_time < REGULAR_SESSION_CLOSE):
+        if is_intraday and not (REGULAR_SESSION_OPEN <= market_time < REGULAR_SESSION_CLOSE):
             continue
 
         open_ = _finite_quote_value(quote.get("open"), index)
@@ -348,25 +549,24 @@ def _try_yahoo_chart(
     if not bars:
         return None
 
-    return {
-        "ticker": ticker.upper(),
-        "range": range_,
-        "interval": interval,
-        "seriesType": "line" if range_ == "5d" else "candlestick",
-        "timezone": timezone_name,
-        "source": "yahoo",
-        "lastUpdated": datetime.now(timezone.utc).isoformat(),
-        "bars": bars,
-    }
+    return timezone_name, bars
 
 
 def _try_nasdaq_chart(
-    ticker: str, range_: str, interval: str
+    ticker: str,
+    range_: str,
+    interval: str,
+    *,
+    force_refresh: bool = False,
 ) -> Optional[dict[str, Any]]:
     if interval not in {"1d", "1wk", "1mo"}:
         return None
 
-    rows = _fetch_first_nasdaq_history(ticker, range_)
+    rows = _fetch_first_nasdaq_history(
+        ticker,
+        range_,
+        force_refresh=force_refresh,
+    )
     if not rows:
         return None
 
@@ -398,9 +598,16 @@ def _try_nasdaq_chart(
 
 
 def _try_nasdaq_intraday_chart(
-    ticker: str, range_: str, interval: str
+    ticker: str,
+    range_: str,
+    interval: str,
+    *,
+    force_refresh: bool = False,
 ) -> Optional[dict[str, Any]]:
-    points = _fetch_first_nasdaq_intraday_points(ticker)
+    points = _fetch_first_nasdaq_intraday_points(
+        ticker,
+        force_refresh=force_refresh,
+    )
     if not points:
         return None
 
@@ -422,9 +629,19 @@ def _try_nasdaq_intraday_chart(
     }
 
 
-def _fetch_first_nasdaq_history(ticker: str, range_: str) -> list[dict[str, Any]]:
+def _fetch_first_nasdaq_history(
+    ticker: str,
+    range_: str,
+    *,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
     for asset_class in _nasdaq_asset_classes(ticker):
-        rows = _fetch_nasdaq_history(ticker, asset_class, range_)
+        rows = _fetch_nasdaq_history(
+            ticker,
+            asset_class,
+            range_,
+            force_refresh=force_refresh,
+        )
         if rows:
             return rows
     return []
@@ -432,16 +649,26 @@ def _fetch_first_nasdaq_history(ticker: str, range_: str) -> list[dict[str, Any]
 
 def _fetch_first_nasdaq_intraday_points(
     ticker: str,
+    *,
+    force_refresh: bool = False,
 ) -> list[tuple[datetime, float]]:
     for asset_class in _nasdaq_asset_classes(ticker):
-        points = _fetch_nasdaq_intraday_points(ticker, asset_class)
+        points = _fetch_nasdaq_intraday_points(
+            ticker,
+            asset_class,
+            force_refresh=force_refresh,
+        )
         if points:
             return points
     return []
 
 
 def _fetch_nasdaq_history(
-    ticker: str, asset_class: str, range_: str
+    ticker: str,
+    asset_class: str,
+    range_: str,
+    *,
+    force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
     start_date, end_date = _history_date_range(ticker, range_)
     encoded_ticker = parse.quote(ticker.upper())
@@ -455,7 +682,7 @@ def _fetch_nasdaq_history(
     )
     url = f"https://api.nasdaq.com/api/quote/{encoded_ticker}/historical?{query}"
     try:
-        payload = _fetch_json(url, timeout=8)
+        payload = _fetch_json(url, timeout=8, force_refresh=force_refresh)
     except (OSError, error.URLError, json.JSONDecodeError):
         return []
 
@@ -468,13 +695,15 @@ def _fetch_nasdaq_history(
 def _fetch_nasdaq_intraday_points(
     ticker: str,
     asset_class: str,
+    *,
+    force_refresh: bool = False,
 ) -> list[tuple[datetime, float]]:
     timezone_name = _infer_market_timezone(ticker)
     encoded_ticker = parse.quote(ticker.upper())
     query = parse.urlencode({"assetclass": asset_class})
     url = f"https://api.nasdaq.com/api/quote/{encoded_ticker}/chart?{query}"
     try:
-        payload = _fetch_json(url, timeout=8)
+        payload = _fetch_json(url, timeout=8, force_refresh=force_refresh)
     except (OSError, error.URLError, json.JSONDecodeError):
         return []
 
@@ -495,10 +724,10 @@ def _fetch_nasdaq_intraday_points(
     return sorted(points, key=lambda point: point[0])
 
 
-def _fetch_json(url: str, timeout: int) -> Any:
+def _fetch_json(url: str, timeout: int, *, force_refresh: bool = False) -> Any:
     now = datetime.now(timezone.utc)
     cached = NASDAQ_JSON_CACHE.get(url)
-    if cached and now - cached[0] < NASDAQ_CACHE_TTL:
+    if not force_refresh and cached and now - cached[0] < NASDAQ_CACHE_TTL:
         return cached[1]
 
     http_request = request.Request(url, headers=NASDAQ_HEADERS)

@@ -26,22 +26,22 @@ export const TIMEFRAMES: TimeframeConfig[] = [
   {
     key: "D",
     label: "日K",
-    description: "长期日K",
-    range: "max",
+    description: "五年日K",
+    range: "5y",
     interval: "1d",
   },
   {
     key: "W",
     label: "周K",
-    description: "长期周K",
-    range: "max",
+    description: "十年周K",
+    range: "10y",
     interval: "1wk",
   },
   {
     key: "M",
     label: "月K",
-    description: "长期月K",
-    range: "max",
+    description: "十年月K",
+    range: "10y",
     interval: "1mo",
   },
 ];

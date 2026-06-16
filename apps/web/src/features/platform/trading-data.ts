@@ -342,6 +342,68 @@ export function parseStockPoolText(value: string) {
     .filter(Boolean);
 }
 
+export function replaceStockPool(
+  state: TradingDataState,
+  value: string
+): TradingDataState {
+  const stockPool = parseStockPoolText(value);
+  const poolSet = new Set(stockPool);
+
+  return {
+    ...state,
+    stockPool,
+    positions: state.positions.filter((position) =>
+      poolSet.has(normalizeTicker(position.ticker))
+    ),
+  };
+}
+
+export function upsertPositionPlan(
+  state: TradingDataState,
+  position: PositionPlan
+): TradingDataState {
+  const nextPosition = sanitizePosition(position);
+  if (!nextPosition.ticker) {
+    return state;
+  }
+
+  const exists = state.positions.some(
+    (item) => normalizeTicker(item.ticker) === nextPosition.ticker
+  );
+
+  return {
+    ...state,
+    stockPool: uniqueTickers([...state.stockPool, nextPosition.ticker]),
+    positions: exists
+      ? state.positions.map((item) =>
+          normalizeTicker(item.ticker) === nextPosition.ticker
+            ? nextPosition
+            : item
+        )
+      : [...state.positions, nextPosition],
+  };
+}
+
+export function removeTrackedTicker(
+  state: TradingDataState,
+  ticker: string
+): TradingDataState {
+  const normalizedTicker = normalizeTicker(ticker);
+  if (!normalizedTicker) {
+    return state;
+  }
+
+  return {
+    ...state,
+    stockPool: state.stockPool.filter(
+      (item) => normalizeTicker(item) !== normalizedTicker
+    ),
+    positions: state.positions.filter(
+      (position) => normalizeTicker(position.ticker) !== normalizedTicker
+    ),
+  };
+}
+
 export function findDuplicateTickers(values: string[]) {
   const seen = new Set<string>();
   const duplicates = new Set<string>();
@@ -373,9 +435,18 @@ export function normalizeTradeInput(
     action: input.action,
     shares: roundNumber(shares, 6),
     unitPrice: roundNumber(unitPrice, 4),
-    amount: roundNumber(amount > 0 ? amount : shares * unitPrice, 2),
+    amount: roundNumber(amount > 0 ? amount : shares * unitPrice, 4),
     note: input.note.trim(),
   };
+}
+
+export function parseTradeNumberInput(value: string) {
+  return cleanNumber(value);
+}
+
+export function formatTradeNumberInput(value: number) {
+  const number = cleanNumber(value);
+  return number > 0 ? String(roundNumber(number, 4)) : "";
 }
 
 export function derivePositions(state: TradingDataState): DerivedPosition[] {

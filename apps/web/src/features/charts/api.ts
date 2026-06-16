@@ -1,4 +1,5 @@
 import { TIMEFRAMES, type ChartResponse, type Quote, type TimeframeKey, type WatchlistItem } from "@/features/charts/types";
+import { buildQuotesPath } from "@/features/charts/quote-path";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
@@ -21,19 +22,22 @@ export async function fetchWatchlist(): Promise<WatchlistItem[]> {
   return data.items;
 }
 
-export async function fetchQuotes(tickers: string[] = []): Promise<Quote[]> {
-  const query = tickers.map((ticker) => `ticker=${encodeURIComponent(ticker)}`);
-  const suffix = query.length ? `?${query.join("&")}` : "";
-  const data = await requestJson<ApiList<Quote>>(`/api/quotes${suffix}`);
+export async function fetchQuotes(
+  tickers: string[] = [],
+  refresh = false
+): Promise<Quote[]> {
+  const data = await requestJson<ApiList<Quote>>(buildQuotesPath(tickers, refresh));
   return data.items;
 }
 
 export async function fetchChart(
   ticker: string,
-  timeframeKey: TimeframeKey
+  timeframeKey: TimeframeKey,
+  refresh = false
 ): Promise<ChartResponse> {
   const timeframe = TIMEFRAMES.find((item) => item.key === timeframeKey) ?? TIMEFRAMES[2];
+  const refreshQuery = refresh ? "&refresh=1" : "";
   return requestJson<ChartResponse>(
-    `/api/charts/${encodeURIComponent(ticker)}?range=${timeframe.range}&interval=${timeframe.interval}`
+    `/api/charts/${encodeURIComponent(ticker)}?range=${timeframe.range}&interval=${timeframe.interval}${refreshQuery}`
   );
 }

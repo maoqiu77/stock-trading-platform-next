@@ -23,6 +23,7 @@ from app.modules.trading_data import (
     account_summary,
     derive_positions,
     get_effective_watchlist,
+    infer_market,
     load_trading_state,
     reset_trading_state,
     save_trading_state,
@@ -62,12 +63,30 @@ def watchlist() -> dict[str, object]:
 
 
 @app.get("/api/quotes")
-def quotes(ticker: list[str] = Query(default=[])) -> dict[str, object]:
-    symbols = get_effective_watchlist()
+def quotes(
+    ticker: list[str] = Query(default=[]),
+    refresh: bool = Query(default=False),
+) -> dict[str, object]:
     if ticker:
-        wanted = {item.upper() for item in ticker}
-        symbols = [item for item in symbols if item["ticker"].upper() in wanted]
-    return {"items": get_quotes(symbols)}
+        saved_rows = {item["ticker"].upper(): item for item in get_effective_watchlist()}
+        seen: set[str] = set()
+        symbols = []
+        for raw_ticker in ticker:
+            requested_ticker = raw_ticker.strip().upper()
+            if not requested_ticker or requested_ticker in seen:
+                continue
+            saved = saved_rows.get(requested_ticker, {})
+            symbols.append(
+                {
+                    "ticker": requested_ticker,
+                    "name": saved.get("name") or requested_ticker,
+                    "market": saved.get("market") or infer_market(requested_ticker),
+                }
+            )
+            seen.add(requested_ticker)
+    else:
+        symbols = get_effective_watchlist()
+    return {"items": get_quotes(symbols, force_refresh=refresh)}
 
 
 @app.get("/api/charts/{ticker}")
@@ -75,8 +94,9 @@ def chart(
     ticker: str,
     range_: str = Query(default="1y", alias="range"),
     interval: str = Query(default="1d"),
+    refresh: bool = Query(default=False),
 ) -> dict[str, object]:
-    return get_chart(ticker, range_, interval)
+    return get_chart(ticker, range_, interval, force_refresh=refresh)
 
 
 @app.get("/api/trading-state")

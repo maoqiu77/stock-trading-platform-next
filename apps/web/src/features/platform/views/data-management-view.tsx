@@ -57,7 +57,9 @@ import {
   formatMoney,
   formatRatio,
   formatShares,
+  formatTradeNumberInput,
   normalizeTicker,
+  parseTradeNumberInput,
   parseStockPoolText,
   todayIsoDate,
   type AssetType,
@@ -67,8 +69,13 @@ import {
 } from "@/features/platform/trading-data";
 import { useTradingData } from "@/features/platform/trading-data-context";
 
-type TradeDraft = Omit<TradeRecord, "id" | "shares">;
-type ImportedTradeDraft = TradeDraft & { shares?: number };
+type TradeDraft = Omit<TradeRecord, "id" | "shares" | "unitPrice" | "amount"> & {
+  unitPrice: string;
+  amount: string;
+};
+type ImportedTradeDraft = Omit<TradeRecord, "id" | "shares"> & {
+  shares?: number;
+};
 type TradeImportPreview = {
   fileName: string;
   trades: ImportedTradeDraft[];
@@ -88,8 +95,8 @@ const initialTradeDraft: TradeDraft = {
   date: todayIsoDate(),
   ticker: "",
   action: "买入" as TradeAction,
-  unitPrice: 0,
-  amount: 0,
+  unitPrice: "",
+  amount: "",
   note: "",
 };
 
@@ -151,8 +158,10 @@ export function DataManagementView() {
       setAiTestMessage(error.message);
     },
   });
+  const tradeAmount = parseTradeNumberInput(tradeDraft.amount);
+  const tradeUnitPrice = parseTradeNumberInput(tradeDraft.unitPrice);
   const estimatedShares =
-    tradeDraft.unitPrice > 0 ? tradeDraft.amount / tradeDraft.unitPrice : 0;
+    tradeUnitPrice > 0 ? tradeAmount / tradeUnitPrice : 0;
   const isEditingTrade = Boolean(editingTradeId);
   const stockPoolText = state.stockPool.join("\n");
   const stockPoolPreview = parseStockPoolText(stockPoolText);
@@ -452,12 +461,12 @@ export function DataManagementView() {
                     id="trade-amount"
                     type="number"
                     min="0"
-                    step="10"
+                    step="0.0001"
                     value={tradeDraft.amount}
                     onChange={(event) =>
                       setTradeDraft((current) => ({
                         ...current,
-                        amount: Number(event.target.value),
+                        amount: event.target.value,
                       }))
                     }
                   />
@@ -468,12 +477,12 @@ export function DataManagementView() {
                     id="trade-unit-price"
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="0.0001"
                     value={tradeDraft.unitPrice}
                     onChange={(event) =>
                       setTradeDraft((current) => ({
                         ...current,
-                        unitPrice: Number(event.target.value),
+                        unitPrice: event.target.value,
                       }))
                     }
                   />
@@ -502,18 +511,23 @@ export function DataManagementView() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={() => {
+                      const normalizedTradeDraft = {
+                        ...tradeDraft,
+                        amount: tradeAmount,
+                        unitPrice: tradeUnitPrice,
+                      };
                       if (editingTradeId) {
-                        updateTrade(editingTradeId, tradeDraft);
+                        updateTrade(editingTradeId, normalizedTradeDraft);
                       } else {
-                        addTrade(tradeDraft);
+                        addTrade(normalizedTradeDraft);
                       }
                       setTradeDraft(initialTradeDraft);
                       setEditingTradeId(null);
                     }}
                     disabled={
                       !tradeDraft.ticker.trim() ||
-                      tradeDraft.amount <= 0 ||
-                      tradeDraft.unitPrice <= 0
+                      tradeAmount <= 0 ||
+                      tradeUnitPrice <= 0
                     }
                   >
                     <PlusIcon data-icon="inline-start" />
@@ -589,8 +603,8 @@ export function DataManagementView() {
                               date: trade.date,
                               ticker: trade.ticker,
                               action: trade.action,
-                              unitPrice: trade.unitPrice,
-                              amount: trade.amount,
+                              unitPrice: formatTradeNumberInput(trade.unitPrice),
+                              amount: formatTradeNumberInput(trade.amount),
                               note: trade.note,
                             });
                             setEditingTradeId(trade.id);

@@ -14,10 +14,11 @@ import {
   dynamicCash,
   getActiveStrategyProfile,
   holdingCostValue,
-  normalizeTicker,
   normalizeTradeInput,
-  parseStockPoolText,
+  removeTrackedTicker,
+  replaceStockPool,
   sanitizeTradingData,
+  upsertPositionPlan,
   uniqueTickers,
   validateTradingData,
   type PositionPlan,
@@ -219,44 +220,21 @@ export function TradingDataProvider({
 
   const updateStockPoolText = React.useCallback(
     (value: string) => {
-      commitState((current) => ({
-        ...current,
-        stockPool: parseStockPoolText(value),
-      }));
+      commitState((current) => replaceStockPool(current, value));
     },
     [commitState]
   );
 
   const upsertPosition = React.useCallback(
     (position: PositionPlan) => {
-      commitState((current) => {
-        const ticker = normalizeTicker(position.ticker);
-        const nextPosition = { ...position, ticker };
-        const exists = current.positions.some(
-          (item) => normalizeTicker(item.ticker) === ticker
-        );
-        return {
-          ...current,
-          positions: exists
-            ? current.positions.map((item) =>
-                normalizeTicker(item.ticker) === ticker ? nextPosition : item
-              )
-            : [...current.positions, nextPosition],
-        };
-      });
+      commitState((current) => upsertPositionPlan(current, position));
     },
     [commitState]
   );
 
   const removePosition = React.useCallback(
     (ticker: string) => {
-      commitState((current) => ({
-        ...current,
-        positions: current.positions.filter(
-          (position) =>
-            normalizeTicker(position.ticker) !== normalizeTicker(ticker)
-        ),
-      }));
+      commitState((current) => removeTrackedTicker(current, ticker));
     },
     [commitState]
   );

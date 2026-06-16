@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/table";
 import { OverviewPanel } from "@/features/charts/overview-panel";
 import { formatPrice } from "@/features/charts/format";
-import { useQuotesQuery, useWatchlistQuery } from "@/features/charts/queries";
+import { useQuotesQuery } from "@/features/charts/queries";
 import { useSignalsQuery } from "@/features/platform/queries";
 import type { SignalRow } from "@/features/platform/api";
 import {
@@ -48,15 +48,13 @@ import {
 import { cn } from "@/lib/utils";
 
 export function DashboardView({
+  marketRefreshKey = 0,
   onNavigate,
 }: {
+  marketRefreshKey?: number;
   onNavigate: (view: PlatformView) => void;
 }) {
-  const watchlistQuery = useWatchlistQuery();
-  const tickers = watchlistQuery.data?.map((item) => item.ticker) ?? [];
-  const quotesQuery = useQuotesQuery(tickers);
   const signalsQuery = useSignalsQuery();
-  const quotes = quotesQuery.data ?? [];
   const signals = signalsQuery.data ?? [];
   const {
     state,
@@ -67,6 +65,9 @@ export function DashboardView({
     activeStrategyProfile,
     storageStatus,
   } = useTradingData();
+  const tickers = state.stockPool;
+  const quotesQuery = useQuotesQuery(tickers, marketRefreshKey);
+  const quotes = quotesQuery.data ?? [];
   const priceByTicker = new Map(
     quotes
       .filter((quote) => quote.source !== "sample")
@@ -77,7 +78,7 @@ export function DashboardView({
   for (const signal of signals) {
     const signalPrice =
       signal.source === "sample" ? undefined : finiteNumber(signal.current_price);
-    if (signalPrice !== undefined) {
+    if (signalPrice !== undefined && !valuationPriceByTicker.has(signal.ticker)) {
       valuationPriceByTicker.set(signal.ticker, signalPrice);
     }
   }
@@ -202,19 +203,20 @@ export function DashboardView({
                 {derivedPositions.map((position) => {
                   const signal = signalByTicker.get(position.ticker);
                   const realSignal = signal?.source === "sample" ? undefined : signal;
+                  const quotePrice = priceByTicker.get(position.ticker);
                   const price =
+                    quotePrice ??
                     finiteNumber(realSignal?.current_price) ??
-                    priceByTicker.get(position.ticker) ??
                     position.costBasis;
-                  const isCostEstimate = !realSignal && !priceByTicker.has(position.ticker);
+                  const isCostEstimate = !realSignal && quotePrice === undefined;
                   const marketValue =
-                    finiteNumber(realSignal?.market_value) ?? position.shares * price;
-                  const pnl =
-                    finiteNumber(realSignal?.unrealized_pnl) ??
-                    marketValue - position.holdingCost;
+                    quotePrice === undefined
+                      ? finiteNumber(realSignal?.market_value) ??
+                        position.shares * price
+                      : position.shares * price;
+                  const pnl = marketValue - position.holdingCost;
                   const returnFromCost =
-                    realSignal?.return_from_cost ??
-                    (position.holdingCost > 0 ? pnl / position.holdingCost : undefined);
+                    position.holdingCost > 0 ? pnl / position.holdingCost : undefined;
                   const currentWeight =
                     realSignal?.current_weight ??
                     (state.account.totalAssets > 0

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { ChartWorkspace } from "@/features/charts/chart-workspace";
@@ -13,8 +14,16 @@ import { TradingDataProvider } from "@/features/platform/trading-data-context";
 import type { PlatformView } from "@/features/platform/types";
 
 export function PlatformWorkspace() {
+  const queryClient = useQueryClient();
   const [activeView, setActiveView] =
     React.useState<PlatformView>("overview");
+  const [marketRefreshKey, setMarketRefreshKey] = React.useState(0);
+
+  const refreshMarketData = React.useCallback(() => {
+    setMarketRefreshKey((current) => current + 1);
+    queryClient.invalidateQueries({ queryKey: ["signals"] });
+    queryClient.invalidateQueries({ queryKey: ["chart"] });
+  }, [queryClient]);
 
   React.useEffect(() => {
     window.scrollTo({ left: 0, top: 0 });
@@ -22,11 +31,20 @@ export function PlatformWorkspace() {
 
   return (
     <TradingDataProvider>
-      <AppShell activeView={activeView} onViewChange={setActiveView}>
+      <AppShell
+        activeView={activeView}
+        onMarketRefresh={refreshMarketData}
+        onViewChange={setActiveView}
+      >
         {activeView === "overview" ? (
-          <DashboardView onNavigate={setActiveView} />
+          <DashboardView
+            marketRefreshKey={marketRefreshKey}
+            onNavigate={setActiveView}
+          />
         ) : null}
-        {activeView === "charts" ? <ChartWorkspace /> : null}
+        {activeView === "charts" ? (
+          <ChartWorkspace marketRefreshKey={marketRefreshKey} />
+        ) : null}
         {activeView === "strategy" ? <StrategyView /> : null}
         {activeView === "ai" ? <AiAdviceView /> : null}
         {activeView === "data" ? <DataManagementView /> : null}

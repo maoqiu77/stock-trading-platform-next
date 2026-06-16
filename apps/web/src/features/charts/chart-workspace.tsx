@@ -22,7 +22,6 @@ import { MarketChart } from "@/features/charts/market-chart";
 import {
   useChartQuery,
   useQuotesQuery,
-  useWatchlistQuery,
 } from "@/features/charts/queries";
 import { SymbolHeader } from "@/features/charts/symbol-header";
 import { TimeframeTabs } from "@/features/charts/timeframe-tabs";
@@ -30,21 +29,21 @@ import { TIMEFRAMES, type TimeframeKey } from "@/features/charts/types";
 import { WatchlistRail } from "@/features/charts/watchlist-rail";
 import { useTradingData } from "@/features/platform/trading-data-context";
 
-export function ChartWorkspace() {
+export function ChartWorkspace({
+  marketRefreshKey = 0,
+}: {
+  marketRefreshKey?: number;
+}) {
   const [selectedTicker, setSelectedTicker] = React.useState("VOO");
   const [timeframeKey, setTimeframeKey] = React.useState<TimeframeKey>("D");
   const { state } = useTradingData();
 
-  const watchlistQuery = useWatchlistQuery();
-  const tickers = React.useMemo(
-    () => watchlistQuery.data?.map((item) => item.ticker) ?? [],
-    [watchlistQuery.data]
-  );
+  const tickers = state.stockPool;
   const activeTicker = tickers.includes(selectedTicker)
     ? selectedTicker
-    : tickers[0] ?? selectedTicker;
-  const quotesQuery = useQuotesQuery(tickers);
-  const chartQuery = useChartQuery(activeTicker, timeframeKey);
+    : tickers[0] ?? "";
+  const quotesQuery = useQuotesQuery(tickers, marketRefreshKey);
+  const chartQuery = useChartQuery(activeTicker, timeframeKey, marketRefreshKey);
 
   const timeframe =
     TIMEFRAMES.find((item) => item.key === timeframeKey) ?? TIMEFRAMES[2];
@@ -55,7 +54,7 @@ export function ChartWorkspace() {
     [activeTicker, state.trades]
   );
   const hasDataError =
-    watchlistQuery.isError || quotesQuery.isError || chartQuery.isError;
+    quotesQuery.isError || chartQuery.isError;
 
   return (
     <div className="grid min-h-[calc(100svh-6.5rem)] gap-3 xl:grid-cols-[232px_minmax(0,1fr)]">
@@ -63,7 +62,7 @@ export function ChartWorkspace() {
         <WatchlistRail
           quotes={quotes}
           selectedTicker={activeTicker}
-          isLoading={watchlistQuery.isLoading || quotesQuery.isLoading}
+          isLoading={quotesQuery.isLoading}
           onSelect={setSelectedTicker}
         />
       </aside>
@@ -72,7 +71,7 @@ export function ChartWorkspace() {
           <CardHeader className="border-b">
             <div className="flex flex-col gap-4">
               <SymbolHeader
-                ticker={activeTicker}
+                ticker={activeTicker || "未选择"}
                 quote={selectedQuote}
                 timeframe={timeframe}
               />
@@ -80,7 +79,15 @@ export function ChartWorkspace() {
             </div>
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col px-0 pb-0">
-            {hasDataError ? (
+            {!activeTicker ? (
+              <Alert className="m-3">
+                <AlertCircleIcon />
+                <AlertTitle>股票池为空</AlertTitle>
+                <AlertDescription>
+                  请先在数据管理中新增标的，K线工作台会自动同步。
+                </AlertDescription>
+              </Alert>
+            ) : hasDataError ? (
               <Alert variant="destructive" className="m-3">
                 <AlertCircleIcon />
                 <AlertTitle>行情接口暂不可用</AlertTitle>
@@ -92,7 +99,6 @@ export function ChartWorkspace() {
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      void watchlistQuery.refetch();
                       void quotesQuery.refetch();
                       void chartQuery.refetch();
                     }}

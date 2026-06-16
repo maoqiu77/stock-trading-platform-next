@@ -13,17 +13,19 @@ import type { PlatformView } from "@/features/platform/types";
 export function AppShell({
   activeView,
   onViewChange,
+  onMarketRefresh,
   children,
 }: {
   activeView: PlatformView;
   onViewChange: (view: PlatformView) => void;
+  onMarketRefresh: () => void;
   children: React.ReactNode;
 }) {
   return (
     <SidebarProvider defaultOpen>
       <AppSidebar activeView={activeView} onViewChange={onViewChange} />
       <SidebarInset>
-        <TopBar activeView={activeView} />
+        <TopBar activeView={activeView} onMarketRefresh={onMarketRefresh} />
         <main className="min-h-[calc(100svh-3.5rem)] bg-background p-3 md:p-4">
           {children}
         </main>

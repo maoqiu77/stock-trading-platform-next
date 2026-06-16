@@ -16,7 +16,13 @@ import {
   type PlatformView,
 } from "@/features/platform/types";
 
-export function TopBar({ activeView }: { activeView: PlatformView }) {
+export function TopBar({
+  activeView,
+  onMarketRefresh,
+}: {
+  activeView: PlatformView;
+  onMarketRefresh: () => void;
+}) {
   const { resolvedTheme, setTheme } = useTheme();
   const nextTheme = resolvedTheme === "dark" ? "light" : "dark";
   const viewMeta = getPlatformViewMeta(activeView);
@@ -43,7 +49,7 @@ export function TopBar({ activeView }: { activeView: PlatformView }) {
             <Button
               variant="outline"
               size="icon-sm"
-              onClick={() => window.location.reload()}
+              onClick={onMarketRefresh}
             />
           }
         >

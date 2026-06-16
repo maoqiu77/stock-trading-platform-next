@@ -383,15 +383,34 @@ def build_external_advice_prompt(
     news_items: list[NewsItem],
     context: dict[str, str],
 ) -> str:
+    enriched_positions = enrich_rows_with_strategy_roles(positions, strategy_config)
+    enriched_quotes = enrich_rows_with_strategy_roles(quotes, strategy_config)
     return f"""
 请基于以下完整上下文，给出今天的最终手动加仓/减仓建议。你是最终决策助手，平台量化信号是重要输入，但不是最高裁判。
+
+你的角色与边界：
+- 你是谨慎的美股半自动量化加减仓助手。
+- 你不能下单，不能承诺收益，不能建议融资、期权、做空或杠杆。
+- 你可以同意平台信号，也可以覆盖平台信号；覆盖时必须明确写出“AI 覆盖平台信号”并给出可验证理由。
+- 新闻证据不足时，不要编造，只写“新闻不足以改变结论”。
+- 若提供日内走势摘要，必须用它判断今天的进场节奏：现在小额、等待回踩、分批，还是暂不动。
+
+你必须先理解并持续遵守以下投资框架：
+1. 这是以美股科技/AI 长期投资为主的账户，不追求高频交易。
+2. 持仓分为三层：核心 ETF、核心科技仓、卫星仓；不同层不能用同一套激进程度处理。
+3. 核心 ETF 更偏长期底仓，趋势未破坏时可更稳定分批配置。
+4. 核心科技仓更偏长期持有，但仍需顺势、分批、避免过热追高。
+5. 卫星仓波动更大，必须更轻仓、更慢加、更早减仓降温。
+6. 每个标的的止盈线、止损线如果已设置，必须纳入最终判断；止损信号优先于普通加仓信号。
+7. 当价格接近日内高位、RSI 偏热或仓位高于目标时，默认不要追高；除非趋势、平台信号和新闻都支持，也只能小额。
+8. 当价格接近日内低位但跌破关键支撑，不叫低吸，必须等待重新站稳。
 
 输出要求：
 1. 开头第一行必须写：生成时间：YYYY-MM-DD HH:MM（北京时间）。
 2. 第二部分写“今日最终结论”，用 1-3 句话说明今天应不应该操作、优先操作哪些标的。
 3. 如果“用户额外问题”不为空，请立即新增“额外问题回答”一节。
 4. 给出“账户总体判断”：现金、仓位是否激进、是否需要调整策略参数，控制在 3-5 行。
-5. 给出“标的决策表”：标的 / 分类 / 平台信号 / AI 最终动作 / 金额或股数 / 一句话理由。
+5. 给出“标的决策表”：标的 / 分类 / 策略角色 / 平台信号 / AI 最终动作 / 买入触发价 / 失效或减仓价 / 金额或股数 / 一句话理由。
 6. 对需要操作、平台与 AI 不一致、止盈止损触发、新闻风险明显的标的，在“重点说明”里展开。
 7. 建仓和加仓必须分批；必须结合“日内走势摘要”判断现在小额、等待回踩、分批还是暂不动；不允许一次性打满目标仓位。
 8. 若价格跌破 MA120、触发止损线、仓位明显高于目标或 RSI 过热，必须优先讨论减仓或降温。
@@ -411,8 +430,11 @@ def build_external_advice_prompt(
 账户设置：
 {json.dumps(state.get("account", {}), ensure_ascii=False, indent=2)}
 
-当前持仓快照：
-{json.dumps(positions, ensure_ascii=False, indent=2)}
+当前分层策略摘要：
+{build_layered_strategy_summary(settings, risk_config)}
+
+当前持仓快照（已补充策略角色）：
+{json.dumps(enriched_positions, ensure_ascii=False, indent=2)}
 
 交易流水：
 {json.dumps(state.get("trades", []), ensure_ascii=False, indent=2)}
@@ -426,8 +448,8 @@ def build_external_advice_prompt(
 风控参数：
 {json.dumps(risk_config, ensure_ascii=False, indent=2)}
 
-行情报价：
-{json.dumps(quotes, ensure_ascii=False, indent=2)}
+行情报价（已补充策略角色）：
+{json.dumps(enriched_quotes, ensure_ascii=False, indent=2)}
 
 日内走势摘要：
 {json.dumps(intraday_context, ensure_ascii=False, indent=2)}
@@ -454,9 +476,13 @@ def build_chat_context_prompt(
     news_items: list[NewsItem],
     context: dict[str, str],
 ) -> str:
+    enriched_positions = enrich_rows_with_strategy_roles(positions, strategy_config)
+    enriched_quotes = enrich_rows_with_strategy_roles(quotes, strategy_config)
     return f"""
 以下是当前账户、持仓、买卖操作、行情指标、量化信号和联网抓取的新闻标题上下文。
 请先理解这些上下文，然后只回答后续对话里用户最新提出的问题。
+
+回答时必须遵守三层投资框架：核心 ETF 偏长期底仓，核心科技仓顺势分批，卫星仓更轻仓、更慢加、更早减仓降温。止损、跌破 MA120、仓位超目标和过热追高风险优先于普通加仓信号。
 
 北京时间上下文：
 {json.dumps(context, ensure_ascii=False, indent=2)}
@@ -464,8 +490,11 @@ def build_chat_context_prompt(
 账户摘要：
 {json.dumps(summary, ensure_ascii=False, indent=2)}
 
-当前持仓快照：
-{json.dumps(positions, ensure_ascii=False, indent=2)}
+当前分层策略摘要：
+{build_layered_strategy_summary(settings, risk_config)}
+
+当前持仓快照（已补充策略角色）：
+{json.dumps(enriched_positions, ensure_ascii=False, indent=2)}
 
 买卖操作记录：
 {json.dumps(state.get("trades", []), ensure_ascii=False, indent=2)}
@@ -479,8 +508,8 @@ def build_chat_context_prompt(
 风控参数：
 {json.dumps(risk_config, ensure_ascii=False, indent=2)}
 
-行情报价：
-{json.dumps(quotes, ensure_ascii=False, indent=2)}
+行情报价（已补充策略角色）：
+{json.dumps(enriched_quotes, ensure_ascii=False, indent=2)}
 
 日内走势摘要：
 {json.dumps(intraday_context, ensure_ascii=False, indent=2)}
@@ -491,6 +520,100 @@ def build_chat_context_prompt(
 最近约 3 天 Yahoo Finance 新闻标题：
 {json.dumps([news_item_to_dict(item) for item in news_items], ensure_ascii=False, indent=2)}
 """
+
+
+def build_layered_strategy_summary(settings: dict[str, Any], risk_config: dict[str, Any]) -> str:
+    core_holdings = normalized_role_map(settings.get("coreHoldings", {}))
+    core_symbols = [symbol for symbol, role in core_holdings.items() if role == "core"]
+    satellite_symbols = sorted(
+        {
+            symbol
+            for symbol, role in core_holdings.items()
+            if role == "satellite"
+        }
+        | {str(symbol).upper().strip() for symbol in settings.get("satelliteSymbols", []) if str(symbol).strip()}
+    )
+    return "\n".join(
+        [
+            (
+                "1. 核心 ETF：长期底仓优先，趋势未破坏时可分批配置；"
+                f"正常回撤区间约 {format_ratio(settings.get('etfPullbackMin', 0.02))}-"
+                f"{format_ratio(settings.get('etfPullbackMax', 0.08))}，"
+                f"深回撤区间约 {format_ratio(settings.get('etfDeeperPullbackMin', 0.08))}-"
+                f"{format_ratio(settings.get('etfDeeperPullbackMax', 0.15))}，"
+                f"RSI 超过 {number(settings.get('etfRsiMax'), 74):.0f} 后不追高。"
+            ),
+            (
+                f"2. 核心科技仓（{', '.join(core_symbols) if core_symbols else '用户定义的主线标的'}）："
+                "长期持有但必须顺势、分批；"
+                f"正常回撤区间约 {format_ratio(settings.get('corePullbackMin', 0.03))}-"
+                f"{format_ratio(settings.get('corePullbackMax', 0.10))}，"
+                f"深回撤区间约 {format_ratio(settings.get('coreDeeperPullbackMin', 0.10))}-"
+                f"{format_ratio(settings.get('coreDeeperPullbackMax', 0.18))}，"
+                f"RSI 超过 {number(settings.get('coreRsiMax'), 72):.0f} 后停止追高。"
+            ),
+            (
+                f"3. 卫星仓（{', '.join(satellite_symbols) if satellite_symbols else '用户定义的高波动补充仓位'}）："
+                "波动更大，必须更轻仓、更慢加、更早减仓降温；"
+                f"正常回撤区间约 {format_ratio(settings.get('satellitePullbackMin', 0.05))}-"
+                f"{format_ratio(settings.get('satellitePullbackMax', 0.14))}，"
+                f"深回撤区间约 {format_ratio(settings.get('satelliteDeeperPullbackMin', 0.14))}-"
+                f"{format_ratio(settings.get('satelliteDeeperPullbackMax', 0.24))}，"
+                f"RSI 超过 {number(settings.get('satelliteRsiMax'), 68):.0f} 就不要追高。"
+            ),
+            (
+                f"4. 统一风控：单只 ETF 上限 {format_ratio(risk_config.get('max_etf_weight', 0.60))}；"
+                f"跌破 MA120 或触发止损线时默认先按风险信号减仓约 "
+                f"{format_ratio(settings.get('hardStopMaBreakRatio', 0.50))}。"
+            ),
+        ]
+    )
+
+
+def enrich_rows_with_strategy_roles(
+    rows: list[dict[str, Any]],
+    strategy_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            **row,
+            "strategy_role": strategy_role_for_row(row, strategy_config),
+        }
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def strategy_role_for_row(row: dict[str, Any], strategy_config: dict[str, Any]) -> str:
+    ticker = str(row.get("ticker") or row.get("symbol") or row.get("标的") or "").upper().strip()
+    asset_type = str(row.get("assetType") or row.get("asset_type") or "").upper().strip()
+    if asset_type == "ETF":
+        return "core etf"
+    core_holdings = normalized_role_map(strategy_config.get("core_holdings", {}))
+    satellite_symbols = {
+        str(symbol).upper().strip()
+        for symbol in strategy_config.get("satellite_symbols", [])
+        if str(symbol).strip()
+    }
+    if core_holdings.get(ticker) == "satellite" or ticker in satellite_symbols:
+        return "satellite"
+    return "core"
+
+
+def normalized_role_map(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    roles: dict[str, str] = {}
+    for key, raw_role in value.items():
+        ticker = str(key).upper().strip()
+        role = str(raw_role).lower().strip()
+        if ticker and role in {"core", "satellite"}:
+            roles[ticker] = role
+    return roles
+
+
+def format_ratio(value: Any) -> str:
+    return f"{number(value):.0%}"
 
 
 def build_intraday_market_context(watchlist: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -540,6 +663,9 @@ def summarize_intraday_bars(
     recent_closes = closes[-6:]
     recent_change = recent_closes[-1] - recent_closes[0] if len(recent_closes) >= 2 else 0.0
     recent_change_pct = recent_change / recent_closes[0] if len(recent_closes) >= 2 and recent_closes[0] else 0.0
+    support_levels = intraday_support_levels(lows)
+    resistance_levels = intraday_resistance_levels(highs, latest_price)
+    key_observation_price = support_levels[0] if support_levels else round(low, 4)
     return {
         "ticker": ticker,
         "range": chart.get("range"),
@@ -553,9 +679,75 @@ def summarize_intraday_bars(
         "change_pct": round(change_pct, 4),
         "range_position": round(range_position, 4),
         "recent_30m_change_pct": round(recent_change_pct, 4),
+        "support_levels": support_levels,
+        "resistance_levels": resistance_levels,
+        "key_observation_price": key_observation_price,
+        "bullish_scenario": build_bullish_intraday_scenario(
+            resistance_levels,
+            key_observation_price,
+        ),
+        "bearish_scenario": build_bearish_intraday_scenario(support_levels),
+        "entry_timing": classify_intraday_entry_timing(range_position, recent_change_pct),
         "volume": int(sum(volumes)),
         "last_bar_time": str(last.get("time", "")),
     }
+
+
+def intraday_support_levels(lows: list[float]) -> list[float]:
+    recent_levels = unique_rounded(reversed(lows[-6:]))
+    day_low = round(min(lows), 4) if lows else 0.0
+    levels = recent_levels[:2]
+    if day_low and day_low not in levels:
+        levels.append(day_low)
+    return levels[:3]
+
+
+def intraday_resistance_levels(highs: list[float], latest_price: float) -> list[float]:
+    day_high = round(max(highs), 4) if highs else 0.0
+    levels = [day_high] if day_high else []
+    latest = round(latest_price, 4)
+    if latest and latest not in levels:
+        levels.append(latest)
+    for level in unique_rounded(reversed(highs[-6:])):
+        if level not in levels:
+            levels.append(level)
+        if len(levels) >= 3:
+            break
+    return levels[:3]
+
+
+def unique_rounded(values: Any) -> list[float]:
+    result: list[float] = []
+    for value in values:
+        rounded = round(number(value), 4)
+        if rounded and rounded not in result:
+            result.append(rounded)
+    return result
+
+
+def build_bullish_intraday_scenario(
+    resistance_levels: list[float],
+    key_observation_price: float,
+) -> str:
+    if resistance_levels:
+        return f"若价格站稳 {key_observation_price:g} 且放量突破 {resistance_levels[0]:g}，可考虑更积极分批。"
+    return f"若价格站稳 {key_observation_price:g} 且不再创新低，可考虑小额分批。"
+
+
+def build_bearish_intraday_scenario(support_levels: list[float]) -> str:
+    if support_levels:
+        return f"若跌破 {support_levels[0]:g} 且无法收回，应等待或减小单笔。"
+    return "若继续走弱并刷新日内低点，应等待或减小单笔。"
+
+
+def classify_intraday_entry_timing(range_position: float, recent_change_pct: float) -> str:
+    if range_position >= 0.72:
+        return "等待回踩"
+    if range_position <= 0.25 and recent_change_pct < 0:
+        return "暂不动"
+    if range_position <= 0.45:
+        return "小额分批"
+    return "分批观察"
 
 
 def fetch_yahoo_finance_news(
