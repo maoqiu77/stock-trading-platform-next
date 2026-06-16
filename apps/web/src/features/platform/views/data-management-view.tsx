@@ -37,6 +37,13 @@ import {
   FieldTitle,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -62,7 +69,6 @@ import {
   parseTradeNumberInput,
   parseStockPoolText,
   todayIsoDate,
-  type AssetType,
   type PositionPlan,
   type TradeAction,
   type TradeRecord,
@@ -255,19 +261,23 @@ export function DataManagementView() {
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="data-asset-type">类型</FieldLabel>
-                  <Input
-                    id="data-asset-type"
+                  <Select
                     value={positionDraft.assetType}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       setPositionDraft((current) => ({
                         ...current,
-                        assetType:
-                          event.target.value.toUpperCase() === "ETF"
-                            ? "ETF"
-                            : ("STOCK" as AssetType),
+                        assetType: value === "ETF" ? "ETF" : "STOCK",
                       }))
                     }
-                  />
+                  >
+                    <SelectTrigger id="data-asset-type" className="h-10 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="STOCK">STOCK</SelectItem>
+                      <SelectItem value="ETF">ETF</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </Field>
                 <RatioInput
                   id="data-target-weight"
