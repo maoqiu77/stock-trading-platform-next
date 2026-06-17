@@ -29,9 +29,18 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  fetchAiAdviceCalendar,
   generateAiAdvice,
   sendAiAdviceChat,
 } from "@/features/platform/api";
@@ -41,17 +50,24 @@ import {
 } from "@/features/platform/queries";
 
 const weekLabels = ["一", "二", "三", "四", "五", "六", "日"];
+type AiConfirmAction = "generate" | "chat";
 
 export function AiAdviceView() {
   const queryClient = useQueryClient();
   const [chatPrompt, setChatPrompt] = React.useState("");
   const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
+  const [isRecoveringAiResponse, setIsRecoveringAiResponse] =
+    React.useState(false);
+  const [confirmAction, setConfirmAction] =
+    React.useState<AiConfirmAction | null>(null);
   const [calendarMonth, setCalendarMonth] = React.useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() + 1 };
   });
   const aiCalendarQuery = useAiAdviceCalendarQuery(selectedDate);
   const aiSettingsQuery = useAiSettingsQuery();
+  const calendarData = aiCalendarQuery.data;
+  const record = calendarData?.record ?? null;
   const applyCalendarResponse = React.useCallback(
     (response: Awaited<ReturnType<typeof generateAiAdvice>>) => {
       queryClient.invalidateQueries({ queryKey: ["ai-advice"] });
@@ -63,19 +79,63 @@ export function AiAdviceView() {
     },
     [queryClient]
   );
+  const recoverSavedAiAdvice = React.useCallback(
+    async (previousSignature: string, resetMutation: () => void) => {
+      setIsRecoveringAiResponse(true);
+      try {
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          if (attempt > 0) {
+            await wait(2500);
+          }
+          const response = await fetchAiAdviceCalendar();
+          const nextSignature = aiAdviceRecordSignature(response.record);
+          if (
+            response.record &&
+            response.selectedDate === response.today &&
+            nextSignature !== previousSignature
+          ) {
+            applyCalendarResponse(response);
+            resetMutation();
+            return;
+          }
+        }
+      } catch {
+        // Keep the original mutation error visible when recovery cannot confirm a saved record.
+      } finally {
+        setIsRecoveringAiResponse(false);
+      }
+    },
+    [applyCalendarResponse]
+  );
   const externalMutation = useMutation({
     mutationFn: () => generateAiAdvice(""),
+    onMutate: getCurrentAiAdviceSignature,
     onSuccess: applyCalendarResponse,
+    onError: (error, _variables, context) => {
+      if (isRecoverableAiAdviceError(error)) {
+        void recoverSavedAiAdvice(
+          context?.previousSignature ?? "",
+          () => externalMutation.reset()
+        );
+      }
+    },
   });
   const chatMutation = useMutation({
     mutationFn: sendAiAdviceChat,
+    onMutate: getCurrentAiAdviceSignature,
     onSuccess: (response) => {
       setChatPrompt("");
       applyCalendarResponse(response);
     },
+    onError: (error, _variables, context) => {
+      if (isRecoverableAiAdviceError(error)) {
+        void recoverSavedAiAdvice(
+          context?.previousSignature ?? "",
+          () => chatMutation.reset()
+        );
+      }
+    },
   });
-  const calendarData = aiCalendarQuery.data;
-  const record = calendarData?.record ?? null;
   const savedDates = new Set(calendarData?.dates ?? []);
   const selectedCalendarDate = selectedDate ?? calendarData?.selectedDate ?? null;
   const days = calendarDays(calendarMonth.year, calendarMonth.month);
@@ -86,9 +146,11 @@ export function AiAdviceView() {
   const selectedIsToday =
     Boolean(selectedCalendarDate) && selectedCalendarDate === calendarData?.today;
   const aiError =
-    externalMutation.error?.message ??
-    chatMutation.error?.message ??
-    "";
+    isRecoveringAiResponse
+      ? ""
+      : externalMutation.error?.message ??
+        chatMutation.error?.message ??
+        "";
   const retryPending = externalMutation.isPending || chatMutation.isPending;
   const retryLastAiAction = React.useCallback(() => {
     if (externalMutation.error) {
@@ -103,8 +165,18 @@ export function AiAdviceView() {
   const aiUnavailableReason = !aiReady
     ? "请先在数据管理补齐 AI Base URL、模型和 API Key。"
     : "";
+  const confirmAiSend = React.useCallback(() => {
+    if (confirmAction === "generate") {
+      externalMutation.mutate();
+    }
+    if (confirmAction === "chat") {
+      chatMutation.mutate(chatPrompt);
+    }
+    setConfirmAction(null);
+  }, [chatMutation, chatPrompt, confirmAction, externalMutation]);
 
   return (
+    <>
     <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="flex flex-col gap-3">
         <Card>
@@ -124,7 +196,7 @@ export function AiAdviceView() {
             <Button
               className="w-fit"
               variant="secondary"
-              onClick={() => externalMutation.mutate()}
+              onClick={() => setConfirmAction("generate")}
               disabled={!aiReady || externalMutation.isPending}
             >
               <SparklesIcon data-icon="inline-start" />
@@ -237,7 +309,7 @@ export function AiAdviceView() {
                       />
                     </Field>
                     <Button
-                      onClick={() => chatMutation.mutate(chatPrompt)}
+                      onClick={() => setConfirmAction("chat")}
                       disabled={
                         !aiReady ||
                         !chatPrompt.trim() ||
@@ -324,7 +396,97 @@ export function AiAdviceView() {
         </Card>
       </div>
     </div>
+    <AiSendConfirmDialog
+      action={confirmAction}
+      open={confirmAction !== null}
+      isPending={externalMutation.isPending || chatMutation.isPending}
+      onOpenChange={(open) => {
+        if (!open) {
+          setConfirmAction(null);
+        }
+      }}
+      onConfirm={confirmAiSend}
+    />
+    </>
   );
+}
+
+function AiSendConfirmDialog({
+  action,
+  open,
+  isPending,
+  onOpenChange,
+  onConfirm,
+}: {
+  action: AiConfirmAction | null;
+  open: boolean;
+  isPending: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>确认发送给 AI</DialogTitle>
+          <DialogDescription>
+            继续后会调用你在数据管理中配置的 OpenAI-compatible 接口。请先确认这些本地上下文可以发送给外部模型。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 text-sm">
+          <div className="rounded-lg bg-muted/50 p-3">账户摘要：总资产、现金、持仓成本。</div>
+          <div className="rounded-lg bg-muted/50 p-3">持仓计划：股票池、目标仓位、止盈止损和资产类型。</div>
+          <div className="rounded-lg bg-muted/50 p-3">交易流水：日期、标的、买卖方向、价格、金额和备注。</div>
+          <div className="rounded-lg bg-muted/50 p-3">行情与策略信号：报价来源、均线、RSI、回撤、信号和新闻标题。</div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button onClick={onConfirm} disabled={isPending}>
+            {action === "chat" ? "确认发送追问" : "确认生成建议"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function aiAdviceRecordSignature(
+  record: Awaited<ReturnType<typeof fetchAiAdviceCalendar>>["record"]
+) {
+  if (!record) {
+    return "";
+  }
+  const lastMessage = record.messages.at(-1);
+  return [
+    record.date,
+    record.generated_at,
+    record.content,
+    record.messages.length,
+    lastMessage?.role ?? "",
+    lastMessage?.content ?? "",
+  ].join("\n");
+}
+
+async function getCurrentAiAdviceSignature() {
+  try {
+    const response = await fetchAiAdviceCalendar();
+    return { previousSignature: aiAdviceRecordSignature(response.record) };
+  } catch {
+    return { previousSignature: "" };
+  }
+}
+
+function isRecoverableAiAdviceError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.startsWith("API 500: /api/ai-advice/")
+  );
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function MessageBubble({

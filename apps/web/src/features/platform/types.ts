@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  ActivityIcon,
   BotIcon,
   CandlestickChartIcon,
   DatabaseIcon,
@@ -13,6 +14,7 @@ export type PlatformView =
   | "charts"
   | "strategy"
   | "ai"
+  | "health"
   | "data"
   | "settings";
 
@@ -47,6 +49,12 @@ export const platformNavItems: PlatformNavItem[] = [
     title: "AI建议",
     description: "本地上下文建议流",
     icon: BotIcon,
+  },
+  {
+    id: "health",
+    title: "健康检查",
+    description: "启动、行情、AI 状态",
+    icon: ActivityIcon,
   },
   {
     id: "data",

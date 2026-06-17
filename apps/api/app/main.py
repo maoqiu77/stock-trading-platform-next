@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api_models import (
+    AiAdviceBriefRequest,
+    AiAdviceChatRequest,
+    AiSettingsTestRequest,
+    AiSettingsUpdateRequest,
+    TradingStateRequest,
+)
 from app.core.database import init_db
 from app.modules.ai_advice import (
     create_ai_chat_reply,
@@ -111,8 +118,8 @@ def trading_state() -> dict[str, object]:
 
 
 @app.put("/api/trading-state")
-def update_trading_state(payload: dict[str, Any]) -> dict[str, object]:
-    state = save_trading_state(payload)
+def update_trading_state(payload: TradingStateRequest) -> dict[str, object]:
+    state = save_trading_state(payload.model_dump(mode="python"))
     return {
         "state": state,
         "derivedPositions": derive_positions(state),
@@ -152,18 +159,18 @@ def ai_advice(date: Optional[str] = Query(default=None)) -> dict[str, object]:
 
 
 @app.post("/api/ai-advice/draft")
-def create_ai_advice_draft(payload: dict[str, Any]) -> dict[str, object]:
-    return create_local_ai_advice_draft(str(payload.get("brief", "")))
+def create_ai_advice_draft(payload: AiAdviceBriefRequest) -> dict[str, object]:
+    return create_local_ai_advice_draft(payload.brief)
 
 
 @app.post("/api/ai-advice/generate")
-def generate_ai_advice(payload: dict[str, Any]) -> dict[str, object]:
-    return create_external_ai_advice(str(payload.get("brief", "")))
+def generate_ai_advice(payload: AiAdviceBriefRequest) -> dict[str, object]:
+    return create_external_ai_advice(payload.brief)
 
 
 @app.post("/api/ai-advice/chat")
-def ai_advice_chat(payload: dict[str, Any]) -> dict[str, object]:
-    return create_ai_chat_reply(str(payload.get("prompt", "")))
+def ai_advice_chat(payload: AiAdviceChatRequest) -> dict[str, object]:
+    return create_ai_chat_reply(payload.prompt)
 
 
 @app.get("/api/ai-settings")
@@ -172,10 +179,10 @@ def ai_settings() -> dict[str, object]:
 
 
 @app.put("/api/ai-settings")
-def put_ai_settings(payload: dict[str, Any]) -> dict[str, object]:
-    return update_ai_settings(payload)
+def put_ai_settings(payload: AiSettingsUpdateRequest) -> dict[str, object]:
+    return update_ai_settings(payload.model_dump(exclude_none=True))
 
 
 @app.post("/api/ai-settings/test")
-def test_ai_settings(payload: dict[str, Any]) -> dict[str, object]:
-    return test_ai_settings_connection(payload)
+def test_ai_settings(payload: AiSettingsTestRequest) -> dict[str, object]:
+    return test_ai_settings_connection(payload.model_dump(exclude_none=True))
