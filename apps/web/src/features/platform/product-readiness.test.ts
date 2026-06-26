@@ -31,3 +31,34 @@ test("AI advice view confirms private context before sending to AI", () => {
   assert.match(source, /交易流水/);
   assert.match(source, /行情与策略信号/);
 });
+
+test("AI advice view shows summarized prompt context without duplicate chat history", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+
+  assert.match(source, /AI-prompt/);
+  assert.match(source, /AI_PROMPT_CONTEXT_ITEMS/);
+  assert.match(source, /账户摘要/);
+  assert.match(source, /持仓计划/);
+  assert.match(source, /行情信号/);
+  assert.doesNotMatch(source, /对话记录/);
+  assert.doesNotMatch(source, /AI- prompt/);
+});
+
+test("AI advice generation avoids the Next rewrite proxy", () => {
+  const source = readSource("./api.ts");
+
+  assert.match(source, /AI_REQUEST_BASE_URL/);
+  assert.match(source, /http:\/\/127\.0\.0\.1:8000/);
+  assert.match(source, /generateAiAdvice[\s\S]*AI_REQUEST_BASE_URL/);
+});
+
+test("AI advice view recovers saved results after interrupted generation", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+
+  assert.match(source, /recoverSavedAiAdvice/);
+  assert.match(source, /setQueryData\(\["ai-advice", "default"\], response\)/);
+  assert.match(source, /setQueryData\(\["ai-advice", nextDate\], response\)/);
+  assert.match(source, /API 5/);
+  assert.match(source, /Failed to fetch/);
+  assert.match(source, /Load failed/);
+});

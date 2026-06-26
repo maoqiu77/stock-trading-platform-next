@@ -7,6 +7,10 @@ import {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
   "";
+const AI_REQUEST_BASE_URL =
+  process.env.NEXT_PUBLIC_AI_API_BASE_URL?.replace(/\/$/, "") ??
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
+  "http://127.0.0.1:8000";
 
 export type TradingStateResponse = {
   state: TradingDataState;
@@ -99,6 +103,7 @@ export type AiAdviceRecord = {
   messages: AiAdviceMessage[];
   beijing_context: Record<string, string>;
   extra_question: string;
+  prompt: string;
   news: AiAdviceNewsItem[];
   source: string;
 };
@@ -132,6 +137,8 @@ export type AiSettingsTestResult = {
   model: string;
   modelMatched: boolean | null;
   modelCount: number;
+  responsesOk: boolean;
+  generationEndpoint?: string;
   message: string;
 };
 
@@ -141,9 +148,10 @@ type ApiList<T> = {
 
 async function requestJson<T>(
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
+  baseUrl = API_BASE_URL
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -238,7 +246,7 @@ export async function generateAiAdvice(
   return requestJson<AiAdviceCalendarResponse>("/api/ai-advice/generate", {
     method: "POST",
     body: JSON.stringify({ brief }),
-  });
+  }, AI_REQUEST_BASE_URL);
 }
 
 export async function sendAiAdviceChat(
@@ -247,7 +255,7 @@ export async function sendAiAdviceChat(
   return requestJson<AiAdviceCalendarResponse>("/api/ai-advice/chat", {
     method: "POST",
     body: JSON.stringify({ prompt }),
-  });
+  }, AI_REQUEST_BASE_URL);
 }
 
 export async function fetchAiSettings(): Promise<AiSettings> {

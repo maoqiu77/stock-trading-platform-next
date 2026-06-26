@@ -156,8 +156,13 @@ export function DataManagementView() {
   const aiSettingsTestMutation = useMutation({
     mutationFn: testAiSettings,
     onSuccess: (result) => {
+      const endpoint = result.generationEndpoint
+        ? `（${result.generationEndpoint}）`
+        : "";
       setAiTestMessage(
-        `${result.message} 模型数：${result.modelCount || "--"}。`
+        `${result.message} 模型数：${result.modelCount || "--"}。生成接口：${
+          result.responsesOk ? `可用${endpoint}` : "不可用"
+        }。`
       );
     },
     onError: (error) => {

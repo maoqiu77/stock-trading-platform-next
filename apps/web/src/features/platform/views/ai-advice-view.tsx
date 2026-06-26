@@ -70,12 +70,15 @@ export function AiAdviceView() {
   const record = calendarData?.record ?? null;
   const applyCalendarResponse = React.useCallback(
     (response: Awaited<ReturnType<typeof generateAiAdvice>>) => {
-      queryClient.invalidateQueries({ queryKey: ["ai-advice"] });
-      if (response.selectedDate) {
-        setSelectedDate(response.selectedDate);
-        const [year, month] = response.selectedDate.split("-").map(Number);
+      queryClient.setQueryData(["ai-advice", "default"], response);
+      const nextDate = response.record?.date ?? response.selectedDate ?? response.today;
+      if (nextDate) {
+        queryClient.setQueryData(["ai-advice", nextDate], response);
+        setSelectedDate(nextDate);
+        const [year, month] = nextDate.split("-").map(Number);
         setCalendarMonth({ year, month });
       }
+      void queryClient.invalidateQueries({ queryKey: ["ai-advice"] });
     },
     [queryClient]
   );
@@ -145,13 +148,22 @@ export function AiAdviceView() {
     Boolean(aiSettingsQuery.data?.model);
   const selectedIsToday =
     Boolean(selectedCalendarDate) && selectedCalendarDate === calendarData?.today;
+  const generationPending =
+    externalMutation.isPending || isRecoveringAiResponse;
+  let generateButtonLabel = "生成每日 AI 建议";
+  if (externalMutation.isPending) {
+    generateButtonLabel = "生成中";
+  }
+  if (isRecoveringAiResponse) {
+    generateButtonLabel = "同步结果中";
+  }
   const aiError =
     isRecoveringAiResponse
       ? ""
       : externalMutation.error?.message ??
         chatMutation.error?.message ??
         "";
-  const retryPending = externalMutation.isPending || chatMutation.isPending;
+  const retryPending = generationPending || chatMutation.isPending;
   const retryLastAiAction = React.useCallback(() => {
     if (externalMutation.error) {
       externalMutation.mutate();
@@ -197,10 +209,10 @@ export function AiAdviceView() {
               className="w-fit"
               variant="secondary"
               onClick={() => setConfirmAction("generate")}
-              disabled={!aiReady || externalMutation.isPending}
+              disabled={!aiReady || generationPending}
             >
               <SparklesIcon data-icon="inline-start" />
-              {externalMutation.isPending ? "生成中" : "生成每日 AI 建议"}
+              {generateButtonLabel}
             </Button>
             {aiUnavailableReason ? (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
@@ -268,34 +280,6 @@ export function AiAdviceView() {
                     {record.content}
                   </pre>
                 </div>
-                {record.messages.length > 1 ? (
-                  <div className="grid gap-2">
-                    <div className="text-sm font-medium">对话记录</div>
-                    <div className="grid gap-2">
-                      {record.messages.map((message, index) => (
-                        <MessageBubble
-                          key={`${message.created_at}-${index}`}
-                          role={message.role}
-                          content={message.content}
-                          createdAt={message.created_at}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {record.news.length ? (
-                  <div className="grid gap-2">
-                    <div className="text-sm font-medium">保存的新闻标题</div>
-                    {record.news.slice(0, 8).map((item) => (
-                      <div key={`${item.published}-${item.title}`} className="text-sm">
-                        <div>{item.title}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {item.source} {item.published}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
                 {selectedIsToday ? (
                   <FieldGroup>
                     <Field>
@@ -394,6 +378,47 @@ export function AiAdviceView() {
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle>AI-prompt</CardTitle>
+            <CardDescription>每日总结发送给 AI 的上下文类型</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            {record ? (
+              AI_PROMPT_CONTEXT_ITEMS.map((item) => (
+                <div key={item} className="rounded-lg bg-muted/50 p-3 text-sm">
+                  {item}
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                生成每日总结后，这里会展示发送给 AI 的上下文类型。
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle>保存的新闻标题</CardTitle>
+            <CardDescription>生成建议时纳入上下文的新闻</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {record?.news.length ? (
+              record.news.slice(0, 8).map((item) => (
+                <div key={`${item.published}-${item.title}`} className="text-sm">
+                  <div>{item.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {item.source} {item.published}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                当前记录没有保存新闻标题。
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
     <AiSendConfirmDialog
@@ -434,10 +459,10 @@ function AiSendConfirmDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2 text-sm">
-          <div className="rounded-lg bg-muted/50 p-3">账户摘要：总资产、现金、持仓成本。</div>
+          <div className="rounded-lg bg-muted/50 p-3">账户摘要：账户规模、现金、持仓成本和仓位状态。</div>
           <div className="rounded-lg bg-muted/50 p-3">持仓计划：股票池、目标仓位、止盈止损和资产类型。</div>
-          <div className="rounded-lg bg-muted/50 p-3">交易流水：日期、标的、买卖方向、价格、金额和备注。</div>
-          <div className="rounded-lg bg-muted/50 p-3">行情与策略信号：报价来源、均线、RSI、回撤、信号和新闻标题。</div>
+          <div className="rounded-lg bg-muted/50 p-3">交易流水：历史买卖记录和备注。</div>
+          <div className="rounded-lg bg-muted/50 p-3">行情与策略信号：报价、均线、RSI、回撤、平台信号和新闻标题。</div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -481,7 +506,9 @@ async function getCurrentAiAdviceSignature() {
 function isRecoverableAiAdviceError(error: unknown) {
   return (
     error instanceof Error &&
-    error.message.startsWith("API 500: /api/ai-advice/")
+    (/^API 5\d\d: \/api\/ai-advice\//.test(error.message) ||
+      error.message === "Failed to fetch" ||
+      error.message === "Load failed")
   );
 }
 
@@ -489,31 +516,16 @@ function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-function MessageBubble({
-  role,
-  content,
-  createdAt,
-}: {
-  role: "user" | "assistant";
-  content: string;
-  createdAt: string;
-}) {
-  const isUser = role === "user";
-  return (
-    <div className={isUser ? "flex justify-end" : "flex justify-start"}>
-      <div
-        className={
-          isUser
-            ? "max-w-[82%] rounded-lg bg-primary p-3 text-primary-foreground"
-            : "max-w-[82%] rounded-lg bg-muted p-3"
-        }
-      >
-        <div className="whitespace-pre-wrap text-sm leading-relaxed">{content}</div>
-        <div className="mt-2 text-xs opacity-70">{createdAt}</div>
-      </div>
-    </div>
-  );
-}
+const AI_PROMPT_CONTEXT_ITEMS = [
+  "账户摘要：账户规模、现金、持仓成本和当前仓位状态。",
+  "持仓计划：股票池、目标仓位、止盈止损和资产类型。",
+  "交易流水：历史买卖记录和备注。",
+  "策略配置：分层角色、加仓阈值、止损规则和风险参数。",
+  "行情信号：报价、均线、RSI、回撤、日内走势和平台建议。",
+  "新闻标题：最近新闻标题和来源。",
+  "北京时间上下文：当前交易时段和执行节奏建议。",
+  "用户额外问题：生成日报或追问时输入的补充问题。",
+];
 
 function calendarDays(year: number, month: number) {
   const first = new Date(year, month - 1, 1);

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
+
+import requests
+from fastapi import HTTPException
 
 from app.modules import ai_advice
 
@@ -88,6 +92,177 @@ class AiAdvicePromptTest(unittest.TestCase):
         self.assertEqual(row["entry_timing"], "等待回踩")
         self.assertIn("站稳", row["bullish_scenario"])
         self.assertIn("跌破", row["bearish_scenario"])
+
+    def test_sanitized_record_preserves_saved_prompt(self) -> None:
+        record = ai_advice.sanitize_ai_advice_record(
+            {
+                "date": "2026-06-16",
+                "generated_at": "2026-06-16 21:45",
+                "content": "生成时间：2026-06-16 21:45",
+                "prompt": "发送给 AI 的上下文",
+                "messages": [],
+                "beijing_context": {},
+                "news": [],
+                "source": "external-ai",
+            }
+        )
+
+        self.assertEqual(record["prompt"], "发送给 AI 的上下文")
+
+    def test_call_ai_response_uses_responses_api(self) -> None:
+        with (
+            patch.object(
+                ai_advice,
+                "load_ai_settings",
+                return_value={
+                    "baseUrl": "https://example.test/v1",
+                    "model": "gpt-test",
+                    "apiKey": "sk-test",
+                },
+            ),
+            patch.object(
+                ai_advice.requests,
+                "post",
+                return_value=FakeResponse(
+                    {
+                        "output": [
+                            {
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": "ok"}],
+                            }
+                        ]
+                    }
+                ),
+            ) as post,
+        ):
+            content = ai_advice.call_ai_response(
+                [
+                    {"role": "system", "content": "system rules"},
+                    {"role": "user", "content": "user prompt"},
+                ]
+            )
+
+        self.assertEqual(content, "ok")
+        self.assertEqual(post.call_args.args[0], "https://example.test/v1/responses")
+        self.assertEqual(post.call_args.kwargs["json"]["instructions"], "system rules")
+        self.assertEqual(post.call_args.kwargs["json"]["input"], [{"role": "user", "content": "user prompt"}])
+
+    def test_call_ai_response_falls_back_to_chat_completions(self) -> None:
+        with (
+            patch.object(
+                ai_advice,
+                "load_ai_settings",
+                return_value={
+                    "baseUrl": "https://example.test/v1",
+                    "model": "gpt-test",
+                    "apiKey": "sk-test",
+                },
+            ),
+            patch.object(
+                ai_advice.requests,
+                "post",
+                side_effect=[
+                    FakeResponse(
+                        {"error": "blocked"},
+                        status_code=403,
+                        reason="Forbidden",
+                    ),
+                    FakeResponse(
+                        {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": "ok",
+                                    }
+                                }
+                            ]
+                        }
+                    ),
+                ],
+            ) as post,
+        ):
+            content = ai_advice.call_ai_response(
+                [
+                    {"role": "system", "content": "system rules"},
+                    {"role": "user", "content": "user prompt"},
+                ]
+            )
+
+        self.assertEqual(content, "ok")
+        self.assertEqual(
+            [call.args[0] for call in post.call_args_list],
+            [
+                "https://example.test/v1/responses",
+                "https://example.test/v1/chat/completions",
+            ],
+        )
+        self.assertEqual(
+            post.call_args.kwargs["json"]["messages"],
+            [
+                {"role": "system", "content": "system rules"},
+                {"role": "user", "content": "user prompt"},
+            ],
+        )
+
+    def test_call_ai_response_includes_provider_error_message(self) -> None:
+        with (
+            patch.object(
+                ai_advice,
+                "load_ai_settings",
+                return_value={
+                    "baseUrl": "https://example.test/v1",
+                    "model": "gpt-test",
+                    "apiKey": "sk-test",
+                },
+            ),
+            patch.object(
+                ai_advice.requests,
+                "post",
+                return_value=FakeResponse(
+                    {
+                        "error": {
+                            "message": "Client not allowed (detected: python-requests/2.32.5)"
+                        }
+                    },
+                    status_code=400,
+                    reason="Bad Request",
+                ),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                ai_advice.call_ai_response([{"role": "user", "content": "user prompt"}])
+
+        self.assertEqual(context.exception.status_code, 502)
+        self.assertIn("Client not allowed", str(context.exception.detail))
+
+
+class FakeResponse:
+    def __init__(
+        self,
+        payload: dict[str, object],
+        status_code: int = 200,
+        reason: str = "OK",
+    ) -> None:
+        self.payload = payload
+        self.status_code = status_code
+        self.reason = reason
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(
+                f"{self.status_code} Server Error: {self.reason}",
+                response=self,
+            )
+        return None
+
+    def json(self) -> dict[str, object]:
+        return self.payload
+
+    @property
+    def text(self) -> str:
+        return str(self.payload)
 
 
 if __name__ == "__main__":

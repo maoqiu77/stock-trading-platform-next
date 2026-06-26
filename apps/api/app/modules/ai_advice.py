@@ -16,7 +16,11 @@ import requests
 from fastapi import HTTPException
 
 from app.core.database import get_state_payload, set_state_payload
-from app.modules.ai_settings import load_ai_settings
+from app.modules.ai_settings import (
+    OpenAICompatibleRequestError,
+    call_openai_compatible_completion,
+    load_ai_settings,
+)
 from app.modules.market import get_chart, get_quotes
 from app.modules.research import get_signal_rows
 from app.modules.trading_data import (
@@ -128,7 +132,21 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
     quotes = get_quotes(watchlist)
     intraday_context = build_intraday_market_context(watchlist)
     news_items = fetch_yahoo_finance_news(state.get("stockPool", []))
-    content = call_chat_completion(
+    prompt = build_external_advice_prompt(
+        brief=brief,
+        summary=summary,
+        state=state,
+        positions=positions,
+        settings=settings,
+        strategy_config=strategy_config,
+        risk_config=risk_config,
+        quotes=quotes,
+        signals=signals,
+        intraday_context=intraday_context,
+        news_items=news_items,
+        context=context,
+    )
+    content = call_ai_response(
         [
             {
                 "role": "system",
@@ -143,20 +161,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
             },
             {
                 "role": "user",
-                "content": build_external_advice_prompt(
-                    brief=brief,
-                    summary=summary,
-                    state=state,
-                    positions=positions,
-                    settings=settings,
-                    strategy_config=strategy_config,
-                    risk_config=risk_config,
-                    quotes=quotes,
-                    signals=signals,
-                    intraday_context=intraday_context,
-                    news_items=news_items,
-                    context=context,
-                ),
+                "content": prompt,
             },
         ]
     )
@@ -176,6 +181,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
         ],
         "beijing_context": context,
         "extra_question": brief.strip(),
+        "prompt": prompt,
         "news": [news_item_to_dict(item) for item in news_items],
         "source": "external-ai",
     }
@@ -215,7 +221,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     chat_history = normalize_conversation_messages(
         [*current_record.get("messages", []), user_message]
     )
-    reply = call_chat_completion(
+    reply = call_ai_response(
         [
             {
                 "role": "system",
@@ -342,7 +348,7 @@ def ensure_external_ai_allowed(state: dict[str, Any]) -> None:
         raise HTTPException(status_code=400, detail="请先在数据管理配置 AI Base URL、模型和 API Key。")
 
 
-def call_chat_completion(messages: list[dict[str, str]], temperature: float = 0.2) -> str:
+def call_ai_response(messages: list[dict[str, str]]) -> str:
     ai_settings = load_ai_settings()
     api_key = str(ai_settings.get("apiKey", "")).strip()
     base_url = str(ai_settings.get("baseUrl", "")).strip().rstrip("/")
@@ -350,22 +356,19 @@ def call_chat_completion(messages: list[dict[str, str]], temperature: float = 0.
     if not api_key or not base_url or not model:
         raise HTTPException(status_code=400, detail="AI 设置不完整。")
     try:
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={"model": model, "messages": messages, "temperature": temperature},
+        completion = call_openai_compatible_completion(
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            messages=messages,
             timeout=AI_TIMEOUT_SECONDS,
         )
-        response.raise_for_status()
-        payload = response.json()
-        return str(payload["choices"][0]["message"]["content"]).strip()
-    except requests.exceptions.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"AI 接口请求失败：{exc}") from exc
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail="AI 接口返回格式不符合 chat/completions。") from exc
+        return completion["content"]
+    except OpenAICompatibleRequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI 接口请求失败：{exc}",
+        ) from exc
 
 
 def build_external_advice_prompt(
@@ -976,6 +979,7 @@ def sanitize_ai_advice_record(record: dict[str, Any]) -> dict[str, Any]:
         "messages": messages,
         "beijing_context": context if isinstance(context, dict) else {},
         "extra_question": str(record.get("extra_question", "")),
+        "prompt": str(record.get("prompt", "")),
         "news": news,
         "source": str(record.get("source", "local")),
     }

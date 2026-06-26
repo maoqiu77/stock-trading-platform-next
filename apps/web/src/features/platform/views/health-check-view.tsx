@@ -134,7 +134,7 @@ export function HealthCheckView() {
               <BotIcon />
               AI 接口
             </CardTitle>
-            <CardDescription>OpenAI-compatible chat/completions 配置</CardDescription>
+            <CardDescription>OpenAI-compatible API 配置</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
