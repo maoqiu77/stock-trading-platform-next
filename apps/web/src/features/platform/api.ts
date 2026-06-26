@@ -277,5 +277,5 @@ export async function testAiSettings(
   return requestJson<AiSettingsTestResult>("/api/ai-settings/test", {
     method: "POST",
     body: JSON.stringify(payload),
-  });
+  }, AI_REQUEST_BASE_URL);
 }

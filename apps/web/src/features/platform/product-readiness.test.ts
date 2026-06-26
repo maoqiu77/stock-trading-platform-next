@@ -50,6 +50,7 @@ test("AI advice generation avoids the Next rewrite proxy", () => {
   assert.match(source, /AI_REQUEST_BASE_URL/);
   assert.match(source, /http:\/\/127\.0\.0\.1:8000/);
   assert.match(source, /generateAiAdvice[\s\S]*AI_REQUEST_BASE_URL/);
+  assert.match(source, /testAiSettings[\s\S]*AI_REQUEST_BASE_URL/);
 });
 
 test("AI advice view recovers saved results after interrupted generation", () => {
