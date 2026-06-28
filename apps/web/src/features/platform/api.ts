@@ -142,6 +142,42 @@ export type AiSettingsTestResult = {
   message: string;
 };
 
+export type UpdateAsset = {
+  name: string;
+  size: number;
+  digest: string;
+  downloadUrl: string;
+};
+
+export type UpdateCheckResponse = {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  canInstall: boolean;
+  platform: string;
+  repo: string;
+  releaseUrl: string;
+  asset: UpdateAsset | null;
+  message: string;
+};
+
+export type UpdateStatusResponse = {
+  phase: string;
+  message: string;
+  currentVersion: string;
+  latestVersion: string;
+  assetName: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  backupPath: string;
+  error: string;
+  updatedAt: string;
+};
+
+export type UpdateStartInput = {
+  localStorageSnapshot: Record<string, string>;
+};
+
 type ApiList<T> = {
   items: T[];
 };
@@ -278,4 +314,21 @@ export async function testAiSettings(
     method: "POST",
     body: JSON.stringify(payload),
   }, AI_REQUEST_BASE_URL);
+}
+
+export async function fetchUpdateCheck(): Promise<UpdateCheckResponse> {
+  return requestJson<UpdateCheckResponse>("/api/update/check");
+}
+
+export async function fetchUpdateStatus(): Promise<UpdateStatusResponse> {
+  return requestJson<UpdateStatusResponse>("/api/update/status");
+}
+
+export async function startSoftwareUpdate(
+  payload: UpdateStartInput
+): Promise<UpdateStatusResponse> {
+  return requestJson<UpdateStatusResponse>("/api/update/start", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

@@ -52,8 +52,8 @@ export const platformNavItems: PlatformNavItem[] = [
   },
   {
     id: "health",
-    title: "健康检查",
-    description: "启动、行情、AI 状态",
+    title: "检查更新",
+    description: "软件更新、启动、行情、AI 状态",
     icon: ActivityIcon,
   },
   {

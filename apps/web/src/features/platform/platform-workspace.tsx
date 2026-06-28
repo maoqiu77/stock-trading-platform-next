@@ -191,7 +191,7 @@ function FirstRunOnboarding({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onOpenHealth}>
-            查看健康检查
+            检查更新
           </Button>
           <Button variant="outline" onClick={onOpenData}>
             去数据管理

@@ -27,6 +27,14 @@ class ApiContractTest(unittest.TestCase):
                 {"baseUrl": 123, "model": "gpt-test", "apiKey": "sk-test"}
             )
 
+    def test_update_start_rejects_non_string_local_storage_snapshot(self) -> None:
+        models = self.load_request_models()
+
+        with self.assertRaises(ValidationError):
+            models["UpdateStartRequest"].model_validate(
+                {"localStorageSnapshot": {"key": 123}}
+            )
+
     def test_ai_routes_use_request_models(self) -> None:
         from app import main
 
@@ -48,6 +56,10 @@ class ApiContractTest(unittest.TestCase):
             get_type_hints(main.test_ai_settings)["payload"],
             models["AiSettingsTestRequest"],
         )
+        self.assertIs(
+            get_type_hints(main.update_start)["payload"],
+            models["UpdateStartRequest"],
+        )
 
     def load_request_models(self) -> dict[str, Any]:
         try:
@@ -56,6 +68,7 @@ class ApiContractTest(unittest.TestCase):
                 AiAdviceChatRequest,
                 AiSettingsTestRequest,
                 AiSettingsUpdateRequest,
+                UpdateStartRequest,
             )
         except ImportError as exc:
             self.fail(f"request models are missing: {exc}")
@@ -64,6 +77,7 @@ class ApiContractTest(unittest.TestCase):
             "AiAdviceChatRequest": AiAdviceChatRequest,
             "AiSettingsTestRequest": AiSettingsTestRequest,
             "AiSettingsUpdateRequest": AiSettingsUpdateRequest,
+            "UpdateStartRequest": UpdateStartRequest,
         }
 
 

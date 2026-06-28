@@ -23,7 +23,9 @@ if [[ ! -f "$WEB_SERVER" ]]; then
 fi
 
 mkdir -p storage/local
+mkdir -p storage/local/pids
 
+export STOCK_APP_INSTALL_ROOT="$PWD"
 export STOCK_APP_DATA_HOME="$PWD/storage/local"
 export STOCK_APP_DB_PATH="$PWD/storage/local/app.db"
 export STOCK_APP_TEMPLATE_HOME="$PWD/storage/templates"
@@ -37,9 +39,12 @@ export PORT="3000"
 API_PID=$!
 "$NODE_BIN" "$WEB_SERVER" > storage/local/web.log 2>&1 &
 WEB_PID=$!
+printf "%s" "$API_PID" > storage/local/pids/api.pid
+printf "%s" "$WEB_PID" > storage/local/pids/web.pid
 
 cleanup() {
   kill "$API_PID" "$WEB_PID" >/dev/null 2>&1 || true
+  rm -f storage/local/pids/api.pid storage/local/pids/web.pid
 }
 trap cleanup EXIT
 

@@ -11,6 +11,7 @@ from app.api_models import (
     AiSettingsTestRequest,
     AiSettingsUpdateRequest,
     TradingStateRequest,
+    UpdateStartRequest,
 )
 from app.core.database import init_db
 from app.modules.ai_advice import (
@@ -26,6 +27,7 @@ from app.modules.ai_settings import (
 )
 from app.modules.market import get_chart, get_quotes
 from app.modules.research import get_backtest_result, get_signal_rows
+from app.modules.app_update import check_for_update, get_update_status, start_update
 from app.modules.trading_data import (
     account_summary,
     derive_positions,
@@ -62,6 +64,21 @@ def on_startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/update/check")
+def update_check() -> dict[str, object]:
+    return check_for_update()
+
+
+@app.get("/api/update/status")
+def update_status() -> dict[str, object]:
+    return get_update_status()
+
+
+@app.post("/api/update/start")
+def update_start(payload: UpdateStartRequest) -> dict[str, object]:
+    return start_update(payload.localStorageSnapshot)
 
 
 @app.get("/api/watchlist")

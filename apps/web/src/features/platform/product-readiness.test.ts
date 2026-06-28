@@ -6,11 +6,11 @@ function readSource(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf-8");
 }
 
-test("platform navigation exposes health checks for end users", () => {
+test("platform navigation exposes update checks for end users", () => {
   const source = readSource("./types.ts");
 
   assert.match(source, /"health"/);
-  assert.match(source, /健康检查/);
+  assert.match(source, /检查更新/);
 });
 
 test("workspace includes first-run onboarding without CSV import copy", () => {

@@ -56,13 +56,16 @@ export function WatchlistRail({
                 className="h-auto w-full justify-start px-2 py-2"
                 onClick={() => onSelect(quote.ticker)}
               >
-                <div className="grid w-full min-w-0 grid-cols-[1fr_auto] items-center gap-2 text-left">
+                <div className="grid w-full min-w-0 grid-cols-[minmax(max-content,1fr)_auto] items-center gap-2 text-left">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="truncate font-medium">{quote.ticker}</span>
+                      <span className="shrink-0 font-medium">{quote.ticker}</span>
                       <Badge
                         variant="secondary"
-                        className={getChangeBadgeClass(quote.changePercent)}
+                        className={cn(
+                          "min-w-fit shrink-0",
+                          getChangeBadgeClass(quote.changePercent)
+                        )}
                       >
                         {formatPercent(quote.changePercent)}
                       </Badge>

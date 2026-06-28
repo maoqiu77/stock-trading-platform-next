@@ -5,6 +5,47 @@ cd "$(dirname "$0")"
 
 API_URL="http://127.0.0.1:8000/health"
 WEB_URL="http://127.0.0.1:3000/"
+PID_DIR="storage/local/pids"
+
+listener_pid() {
+  lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -n 1 || true
+}
+
+process_cwd() {
+  lsof -a -p "$1" -d cwd -Fn 2>/dev/null | awk '/^n/ { sub(/^n/, ""); print; exit }' || true
+}
+
+stop_project_listener() {
+  local port="$1"
+  local label="$2"
+  local pid
+  pid="$(listener_pid "$port")"
+  if [[ -z "$pid" ]]; then
+    return 0
+  fi
+
+  local cwd
+  cwd="$(process_cwd "$pid")"
+  if [[ "$cwd" == "$PWD"* ]]; then
+    echo "$label 端口 $port 被旧的本项目进程占用，正在清理..."
+    kill "$pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 20); do
+      if [[ -z "$(listener_pid "$port")" ]]; then
+        return 0
+      fi
+      sleep 0.5
+    done
+    echo "$label 端口 $port 仍未释放。请重启电脑后再试。"
+    read -r -p "按 Enter 退出。" _
+    exit 1
+  fi
+
+  echo "$label 端口 $port 已被其他程序占用。"
+  echo "占用进程 PID：$pid"
+  echo "请关闭占用端口的程序后再双击启动。"
+  read -r -p "按 Enter 退出。" _
+  exit 1
+}
 
 echo "正在启动股票交易平台..."
 echo "项目目录：$PWD"
@@ -41,8 +82,9 @@ rm -rf apps/web/.next/standalone/.next/static apps/web/.next/standalone/public
 cp -R apps/web/.next/static apps/web/.next/standalone/.next/static
 cp -R apps/web/public apps/web/.next/standalone/public
 
-mkdir -p storage/local
+mkdir -p storage/local "$PID_DIR"
 
+export STOCK_APP_INSTALL_ROOT="$PWD"
 export STOCK_APP_DATA_HOME="$PWD/storage/local"
 export STOCK_APP_DB_PATH="$PWD/storage/local/app.db"
 export STOCK_APP_TEMPLATE_HOME="$PWD/storage/templates"
@@ -55,6 +97,7 @@ cleanup() {
   if [[ -n "${WEB_PID:-}" ]]; then
     kill "$WEB_PID" >/dev/null 2>&1 || true
   fi
+  rm -f "$PID_DIR/api.pid" "$PID_DIR/web.pid"
 }
 trap cleanup EXIT
 
@@ -63,6 +106,9 @@ if curl -fsS "$API_URL" >/dev/null 2>&1 && curl -fsS "$WEB_URL" >/dev/null 2>&1;
   open "$WEB_URL"
   exit 0
 fi
+
+stop_project_listener 8000 "后端"
+stop_project_listener 3000 "网页端"
 
 echo "正在启动后端服务..."
 .venv/bin/python -m uvicorn app.main:app \
@@ -73,11 +119,13 @@ echo "正在启动后端服务..."
   --port 8000 \
   > storage/local/api.log 2>&1 &
 API_PID=$!
+printf "%s" "$API_PID" > "$PID_DIR/api.pid"
 
 echo "正在启动网页端服务..."
 HOSTNAME=127.0.0.1 PORT=3000 node apps/web/.next/standalone/server.js \
   > storage/local/web.log 2>&1 &
 WEB_PID=$!
+printf "%s" "$WEB_PID" > "$PID_DIR/web.pid"
 
 for _ in $(seq 1 90); do
   if curl -fsS "$API_URL" >/dev/null 2>&1 && curl -fsS "$WEB_URL" >/dev/null 2>&1; then

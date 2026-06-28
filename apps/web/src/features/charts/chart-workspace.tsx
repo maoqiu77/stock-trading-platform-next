@@ -57,7 +57,7 @@ export function ChartWorkspace({
     quotesQuery.isError || chartQuery.isError;
 
   return (
-    <div className="grid min-h-[calc(100svh-6.5rem)] gap-3 xl:grid-cols-[232px_minmax(0,1fr)]">
+    <div className="grid min-h-[calc(100svh-6.5rem)] gap-3 xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)]">
       <aside className="min-h-0 xl:sticky xl:top-3 xl:self-start">
         <WatchlistRail
           quotes={quotes}

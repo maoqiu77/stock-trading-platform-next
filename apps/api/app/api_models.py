@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 
 class TradingStateRequest(BaseModel):
@@ -28,3 +28,9 @@ class AiSettingsTestRequest(BaseModel):
     baseUrl: Optional[StrictStr] = None
     model: Optional[StrictStr] = None
     apiKey: Optional[StrictStr] = None
+
+
+class UpdateStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    localStorageSnapshot: dict[StrictStr, StrictStr] = Field(default_factory=dict)

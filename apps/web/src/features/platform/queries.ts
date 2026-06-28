@@ -5,6 +5,8 @@ import {
   fetchAiSettings,
   fetchBacktest,
   fetchSignals,
+  fetchUpdateCheck,
+  fetchUpdateStatus,
 } from "@/features/platform/api";
 
 export function useSignalsQuery() {
@@ -38,5 +40,26 @@ export function useAiSettingsQuery() {
   return useQuery({
     queryKey: ["ai-settings"],
     queryFn: fetchAiSettings,
+  });
+}
+
+export function useUpdateCheckQuery() {
+  return useQuery({
+    queryKey: ["update-check"],
+    queryFn: fetchUpdateCheck,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useUpdateStatusQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: ["update-status"],
+    queryFn: fetchUpdateStatus,
+    enabled,
+    refetchInterval: (query) => {
+      const data = query.state.data as { phase?: string } | undefined;
+      return enabled && data?.phase !== "error" ? 1500 : false;
+    },
+    retry: false,
   });
 }

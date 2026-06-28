@@ -8,6 +8,9 @@ from typing import Any
 from app.core.settings import DB_PATH, TEMPLATE_HOME
 
 
+CURRENT_DB_SCHEMA_VERSION = 1
+
+
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
@@ -17,6 +20,15 @@ def connect() -> sqlite3.Connection:
 
 def init_db() -> None:
     with connect() as connection:
+        migrate_db(connection)
+        existing = connection.execute("select count(*) from watchlist").fetchone()[0]
+        if existing == 0:
+            seed_watchlist(connection, TEMPLATE_HOME / "watchlist.example.json")
+
+
+def migrate_db(connection: sqlite3.Connection) -> None:
+    version = connection.execute("pragma user_version").fetchone()[0]
+    if version < 1:
         connection.execute(
             """
             create table if not exists watchlist (
@@ -36,9 +48,7 @@ def init_db() -> None:
             )
             """
         )
-        existing = connection.execute("select count(*) from watchlist").fetchone()[0]
-        if existing == 0:
-            seed_watchlist(connection, TEMPLATE_HOME / "watchlist.example.json")
+        connection.execute(f"pragma user_version = {CURRENT_DB_SCHEMA_VERSION}")
 
 
 def seed_watchlist(connection: sqlite3.Connection, template_path: Path) -> None:

@@ -94,7 +94,10 @@ if (-not (Test-Path "package.json") -or -not (Test-Path "apps\web\package.json")
 }
 
 New-Item -ItemType Directory -Force -Path "storage\local" | Out-Null
+New-Item -ItemType Directory -Force -Path "storage\local\pids" | Out-Null
+Remove-Item -Path "storage\local\pids\api.pid", "storage\local\pids\web.pid" -Force -ErrorAction SilentlyContinue
 
+$env:STOCK_APP_INSTALL_ROOT = $ProjectRoot
 $env:STOCK_APP_DATA_HOME = Join-Path $ProjectRoot "storage\local"
 $env:STOCK_APP_DB_PATH = Join-Path $ProjectRoot "storage\local\app.db"
 $env:STOCK_APP_TEMPLATE_HOME = Join-Path $ProjectRoot "storage\templates"
@@ -110,8 +113,10 @@ $webServer = Join-Path $ProjectRoot "web\server.js"
 
 if ((Test-Path $apiExe) -and (Test-Path $nodeExe) -and (Test-Path $webServer)) {
   Write-Step "Starting bundled app"
-  Start-Process -FilePath $apiExe -WorkingDirectory $ProjectRoot -WindowStyle Minimized
-  Start-Process -FilePath $nodeExe -ArgumentList @($webServer) -WorkingDirectory $ProjectRoot -WindowStyle Minimized
+  $apiProcess = Start-Process -FilePath $apiExe -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
+  $webProcess = Start-Process -FilePath $nodeExe -ArgumentList @($webServer) -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
+  Set-Content -Path "storage\local\pids\api.pid" -Value $apiProcess.Id
+  Set-Content -Path "storage\local\pids\web.pid" -Value $webProcess.Id
 } else {
   Write-Step "Checking runtime tools"
   Ensure-Command -Name "node" -WingetId "OpenJS.NodeJS.LTS" -ManualUrl "https://nodejs.org/"
@@ -133,8 +138,10 @@ if ((Test-Path $apiExe) -and (Test-Path $nodeExe) -and (Test-Path $webServer)) {
   Write-Step "Starting local API and web app"
   $apiArgs = @("-m", "uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "127.0.0.1", "--port", "8000")
   $webArgs = @("--prefix", "apps/web", "run", "dev", "--", "--hostname", "0.0.0.0")
-  Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList $apiArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized
-  Start-Process -FilePath "npm" -ArgumentList $webArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized
+  $apiProcess = Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList $apiArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
+  $webProcess = Start-Process -FilePath "npm" -ArgumentList $webArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
+  Set-Content -Path "storage\local\pids\api.pid" -Value $apiProcess.Id
+  Set-Content -Path "storage\local\pids\web.pid" -Value $webProcess.Id
 }
 
 Write-Step "Opening web app"

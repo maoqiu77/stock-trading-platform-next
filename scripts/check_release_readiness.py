@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import re
 from pathlib import Path
 
 
@@ -21,7 +22,12 @@ def main() -> int:
     for path in CLIENT_API_FILES:
         text = path.read_text(encoding="utf-8")
         rel = path.relative_to(ROOT)
-        if "http://127.0.0.1:8000" in text or "http://localhost:8000" in text:
+        text_without_ai_direct_base = re.sub(
+            r"const AI_REQUEST_BASE_URL[\s\S]*?;",
+            "",
+            text,
+        )
+        if "http://127.0.0.1:8000" in text_without_ai_direct_base or "http://localhost:8000" in text_without_ai_direct_base:
             failures.append(f"{rel} defaults to a loopback API URL")
         normalized = " ".join(text.split())
         if '?? "";' not in normalized:
@@ -46,6 +52,9 @@ def main() -> int:
         "启动股票交易平台.exe",
         "启动股票交易平台.command",
         "pyinstaller --onefile",
+        "release.json",
+        "scripts/windows/Install-Update.ps1",
+        "scripts/macos/install-update.sh",
     ]
     for snippet in workflow_snippets:
         if snippet not in workflow:
@@ -57,6 +66,13 @@ def main() -> int:
     for launcher in [MACOS_LAUNCHER, WINDOWS_LAUNCHER]:
         if not launcher.exists():
             failures.append(f"missing launcher: {launcher.relative_to(ROOT)}")
+
+    for updater in [
+        ROOT / "scripts/windows/Install-Update.ps1",
+        ROOT / "scripts/macos/install-update.sh",
+    ]:
+        if not updater.exists():
+            failures.append(f"missing updater: {updater.relative_to(ROOT)}")
 
     if failures:
         print("Release readiness check failed:")

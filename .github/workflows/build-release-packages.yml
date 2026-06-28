@@ -47,7 +47,7 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}"
           $pkg = "dist/stock-trading-platform-next-$version-windows-x64"
-          New-Item -ItemType Directory -Force -Path "$pkg/api", "$pkg/runtime/node", "$pkg/storage/templates" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$pkg/api", "$pkg/runtime/node", "$pkg/storage/templates", "$pkg/updater" | Out-Null
           Copy-Item dist/stock-platform-api.exe "$pkg/api/stock-platform-api.exe"
           Copy-Item (Get-Command node).Source "$pkg/runtime/node/node.exe"
           Copy-Item storage/templates/* "$pkg/storage/templates/" -Recurse
@@ -56,6 +56,13 @@ jobs:
           Copy-Item apps/web/.next/static "$pkg/web/.next/static" -Recurse
           Copy-Item apps/web/public "$pkg/web/public" -Recurse
           Copy-Item scripts/windows/Start-StockPlatform.ps1 "$pkg/Start-StockPlatform.ps1"
+          Copy-Item scripts/windows/Install-Update.ps1 "$pkg/updater/Install-Update.ps1"
+          [ordered]@{
+            version = $version
+            platform = "windows-x64"
+            repo = "${{ github.repository }}"
+            builtAt = (Get-Date).ToUniversalTime().ToString("o")
+          } | ConvertTo-Json | Set-Content "$pkg/release.json" -Encoding utf8
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -Confirm:$false
           Invoke-ps2exe `
@@ -114,7 +121,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME}"
           pkg="dist/stock-trading-platform-next-${version}-macos-${{ matrix.arch }}"
-          mkdir -p "$pkg/api" "$pkg/runtime/node" "$pkg/storage/templates"
+          mkdir -p "$pkg/api" "$pkg/runtime/node" "$pkg/storage/templates" "$pkg/updater"
           cp dist/stock-platform-api "$pkg/api/stock-platform-api"
           cp "$(command -v node)" "$pkg/runtime/node/node"
           cp -R storage/templates/. "$pkg/storage/templates/"
@@ -123,7 +130,16 @@ jobs:
           cp -R apps/web/.next/static "$pkg/web/.next/static"
           cp -R apps/web/public "$pkg/web/public"
           cp scripts/macos/Start-StockPlatform.command "$pkg/启动股票交易平台.command"
-          chmod +x "$pkg/api/stock-platform-api" "$pkg/runtime/node/node" "$pkg/启动股票交易平台.command"
+          cp scripts/macos/install-update.sh "$pkg/updater/install-update.sh"
+          cat > "$pkg/release.json" <<EOF
+          {
+            "version": "$version",
+            "platform": "macos-${{ matrix.arch }}",
+            "repo": "${GITHUB_REPOSITORY}",
+            "builtAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          }
+          EOF
+          chmod +x "$pkg/api/stock-platform-api" "$pkg/runtime/node/node" "$pkg/启动股票交易平台.command" "$pkg/updater/install-update.sh"
           (cd dist && zip -r "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}.zip" "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}")
 
       - name: Attach macOS bundle to GitHub Release
