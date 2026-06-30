@@ -73,6 +73,11 @@ export function DashboardView({
       .filter((quote) => quote.source !== "sample")
       .map((quote) => [quote.ticker, quote.price])
   );
+  const changeByTicker = new Map(
+    quotes
+      .filter((quote) => quote.source !== "sample")
+      .map((quote) => [quote.ticker, quote.change])
+  );
   const signalByTicker = new Map(signals.map((signal) => [signal.ticker, signal]));
   const valuationPriceByTicker = new Map(priceByTicker);
   for (const signal of signals) {
@@ -83,6 +88,12 @@ export function DashboardView({
     }
   }
   const holdingValue = holdingMarketValue(derivedPositions, valuationPriceByTicker);
+  const holdingDayChange = changeByTicker.size
+    ? derivedPositions.reduce((total, position) => {
+        const change = changeByTicker.get(position.ticker);
+        return change === undefined ? total : total + position.shares * change;
+      }, 0)
+    : undefined;
   const holdingReturn =
     holdingCost > 0 ? (holdingValue - holdingCost) / holdingCost : undefined;
   const accountCash = dynamicCash(state.account.totalAssets, holdingCost);
@@ -111,6 +122,7 @@ export function DashboardView({
           quotes={quotes}
           holdingCost={holdingCost}
           holdingValue={holdingValue}
+          holdingDayChange={holdingDayChange}
         />
       )}
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">

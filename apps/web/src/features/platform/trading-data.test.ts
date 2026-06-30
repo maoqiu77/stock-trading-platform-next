@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   DEFAULT_TRADING_DATA,
+  derivePositions,
   formatTradeNumberInput,
   normalizeTradeInput,
   parseTradeNumberInput,
@@ -94,6 +95,48 @@ test("normalizeTradeInput keeps trade amount and unit price to four decimals", (
 
   assert.equal(trade.unitPrice, 48.1235);
   assert.equal(trade.amount, 120.9877);
+});
+
+test("derivePositions removes sold shares from oldest lots first", () => {
+  const [position] = derivePositions({
+    ...testState(),
+    trades: [
+      {
+        id: "first-buy",
+        date: "2026-06-01",
+        ticker: "VOO",
+        action: "买入",
+        shares: 10,
+        unitPrice: 10,
+        amount: 100,
+        note: "",
+      },
+      {
+        id: "second-buy",
+        date: "2026-06-02",
+        ticker: "VOO",
+        action: "买入",
+        shares: 10,
+        unitPrice: 20,
+        amount: 200,
+        note: "",
+      },
+      {
+        id: "sell",
+        date: "2026-06-03",
+        ticker: "VOO",
+        action: "卖出",
+        shares: 10,
+        unitPrice: 15,
+        amount: 150,
+        note: "",
+      },
+    ],
+  });
+
+  assert.equal(position.shares, 10);
+  assert.equal(position.costBasis, 20);
+  assert.equal(position.holdingCost, 200);
 });
 
 test("trade number input helpers show empty values for zero and parse blanks as zero", () => {

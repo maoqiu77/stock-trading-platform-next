@@ -456,7 +456,7 @@ export function derivePositions(state: TradingDataState): DerivedPosition[] {
 
   return state.stockPool.map((ticker) => {
     let shares = 0;
-    let costValue = 0;
+    const lots: Array<{ shares: number; cost: number }> = [];
     let firstBuyDate = "";
 
     state.trades
@@ -471,12 +471,24 @@ export function derivePositions(state: TradingDataState): DerivedPosition[] {
 
         if (trade.action === "卖出") {
           const sellQuantity = Math.min(quantity, shares);
-          const averageCost = shares > 0 ? costValue / shares : 0;
           shares -= sellQuantity;
-          costValue -= averageCost * sellQuantity;
+          let remainingSell = sellQuantity;
+          while (remainingSell > 1e-9 && lots.length) {
+            const lot = lots[0];
+            const consumed = Math.min(remainingSell, lot.shares);
+            const unitCost = lot.shares > 0 ? lot.cost / lot.shares : 0;
+            lot.shares -= consumed;
+            lot.cost -= consumed * unitCost;
+            remainingSell -= consumed;
+            if (lot.shares <= 1e-9) {
+              lots.shift();
+            }
+          }
         } else {
+          const amount = cleanNumber(trade.amount);
+          const tradeCost = amount > 0 ? amount : quantity * price;
           shares += quantity;
-          costValue += quantity * price;
+          lots.push({ shares: quantity, cost: tradeCost });
           if (!firstBuyDate) {
             firstBuyDate = trade.date;
           }
@@ -484,6 +496,7 @@ export function derivePositions(state: TradingDataState): DerivedPosition[] {
       });
 
     const plan = targetByTicker.get(ticker);
+    const costValue = lots.reduce((total, lot) => total + lot.cost, 0);
     return {
       ticker,
       targetWeight: plan?.targetWeight ?? balancedSettings.targetWeightDefault ?? 0.1,

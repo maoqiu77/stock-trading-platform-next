@@ -325,7 +325,7 @@ def derive_positions(state: dict[str, Any] | None = None) -> list[dict[str, Any]
 
     for ticker in current.get("stockPool", []):
         shares = 0.0
-        cost_value = 0.0
+        lots: list[dict[str, float]] = []
         first_buy_date = ""
         ticker_trades = sorted(
             [
@@ -342,16 +342,29 @@ def derive_positions(state: dict[str, Any] | None = None) -> list[dict[str, Any]
                 continue
             if trade.get("action") == "卖出":
                 sell_quantity = min(quantity, shares)
-                average_cost = cost_value / shares if shares > 0 else 0.0
                 shares -= sell_quantity
-                cost_value -= average_cost * sell_quantity
+                remaining_sell = sell_quantity
+                while remaining_sell > 1e-9 and lots:
+                    lot = lots[0]
+                    lot_shares = lot["shares"]
+                    consumed = min(remaining_sell, lot_shares)
+                    unit_cost = lot["cost"] / lot_shares if lot_shares > 0 else 0.0
+                    lot["shares"] -= consumed
+                    lot["cost"] -= consumed * unit_cost
+                    remaining_sell -= consumed
+                    if lot["shares"] <= 1e-9:
+                        lots.pop(0)
             else:
+                trade_cost = number(trade.get("amount"))
+                if trade_cost <= 0:
+                    trade_cost = quantity * price
                 shares += quantity
-                cost_value += quantity * price
+                lots.append({"shares": quantity, "cost": trade_cost})
                 if not first_buy_date:
                     first_buy_date = str(trade.get("date", ""))
 
         plan = target_by_ticker.get(ticker, {})
+        cost_value = sum(lot["cost"] for lot in lots)
         cost_basis = cost_value / shares if shares > 0 else 0.0
         derived.append(
             {

@@ -20,10 +20,12 @@ export function OverviewPanel({
   quotes,
   holdingCost,
   holdingValue,
+  holdingDayChange,
 }: {
   quotes: Quote[];
   holdingCost?: number;
   holdingValue?: number;
+  holdingDayChange?: number;
 }) {
   const gainers = quotes.filter((quote) => quote.changePercent > 0).length;
   const decliners = quotes.filter((quote) => quote.changePercent < 0).length;
@@ -35,6 +37,12 @@ export function OverviewPanel({
   const totalPnl =
     holdingCost && holdingCost > 0 && holdingValue !== undefined
       ? holdingValue - holdingCost
+      : undefined;
+  const dayReturn =
+    holdingDayChange !== undefined &&
+    holdingValue !== undefined &&
+    holdingValue - holdingDayChange > 0
+      ? holdingDayChange / (holdingValue - holdingDayChange)
       : undefined;
   const sorted = [...quotes].sort(
     (first, second) => second.changePercent - first.changePercent
@@ -51,17 +59,23 @@ export function OverviewPanel({
         </CardTitle>
         <CardDescription>自选池、涨跌分布、领涨领跌</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <OverviewMetric
           label="自选数量"
           value={quotes.length ? `${quotes.length}` : "--"}
           detail={`上涨 ${gainers} · 下跌 ${decliners} · 平盘 ${flat}`}
         />
         <OverviewMetric
-          label="总收益"
+          label="浮动盈亏"
           value={formatTotalReturn(totalReturn, totalPnl)}
-          detail="按持仓市值和持仓成本计算"
+          detail="市值 - 持仓成本"
           valueClassName={getChangeClass(totalReturn)}
+        />
+        <OverviewMetric
+          label="今日变动"
+          value={formatDayChange(holdingDayChange, dayReturn)}
+          detail="持仓数量 × 单股日变动"
+          valueClassName={getChangeClass(holdingDayChange)}
         />
         <QuoteMetric
           label="领涨"
@@ -84,6 +98,14 @@ function formatTotalReturn(returnValue?: number, pnl?: number) {
   }
 
   return `${formatRatio(returnValue)}（${formatMoney(pnl)}）`;
+}
+
+function formatDayChange(change?: number, returnValue?: number) {
+  if (change === undefined || Number.isNaN(change)) {
+    return "--";
+  }
+
+  return `${formatMoney(change)} / ${formatRatio(returnValue)}`;
 }
 
 function OverviewMetric({
