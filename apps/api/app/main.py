@@ -27,7 +27,12 @@ from app.modules.ai_settings import (
 )
 from app.modules.market import get_chart, get_quotes
 from app.modules.research import get_backtest_result, get_signal_rows
-from app.modules.app_update import check_for_update, get_update_status, start_update
+from app.modules.app_update import (
+    check_for_update,
+    get_runtime_info,
+    get_update_status,
+    start_update,
+)
 from app.modules.trading_data import (
     account_summary,
     derive_positions,
@@ -40,7 +45,7 @@ from app.modules.trading_data import (
 )
 
 
-app = FastAPI(title="Stock Trading Platform API", version="0.1.0")
+app = FastAPI(title="Stock Trading Platform API", version=get_runtime_info().version)
 
 app.add_middleware(
     CORSMiddleware,

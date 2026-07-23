@@ -6,7 +6,7 @@ from unittest.mock import patch
 import requests
 from fastapi import HTTPException
 
-from app.modules import ai_advice
+from app.modules import ai_advice, ai_settings
 
 
 class AiAdvicePromptTest(unittest.TestCase):
@@ -60,7 +60,6 @@ class AiAdvicePromptTest(unittest.TestCase):
             quotes=[{"ticker": "MRVL", "price": 65, "source": "yahoo"}],
             signals=[],
             intraday_context=[],
-            news_items=[],
             context={"beijing_time": "2026-06-16 21:45"},
         )
 
@@ -72,6 +71,8 @@ class AiAdvicePromptTest(unittest.TestCase):
         self.assertIn('"strategy_role": "satellite"', prompt)
         self.assertIn("当前分层策略摘要", prompt)
         self.assertIn("当前持仓快照（已补充策略角色）", prompt)
+        self.assertNotIn("新闻", prompt)
+        self.assertNotIn("Yahoo Finance", prompt)
 
     def test_intraday_summary_exposes_timing_levels(self) -> None:
         chart = {"range": "1d", "interval": "5m", "source": "yahoo"}
@@ -121,7 +122,7 @@ class AiAdvicePromptTest(unittest.TestCase):
                 },
             ),
             patch.object(
-                ai_advice.requests,
+                ai_settings.requests,
                 "post",
                 return_value=FakeResponse(
                     {
@@ -160,7 +161,7 @@ class AiAdvicePromptTest(unittest.TestCase):
                 },
             ),
             patch.object(
-                ai_advice.requests,
+                ai_settings.requests,
                 "post",
                 side_effect=[
                     FakeResponse(
@@ -218,7 +219,7 @@ class AiAdvicePromptTest(unittest.TestCase):
                 },
             ),
             patch.object(
-                ai_advice.requests,
+                ai_settings.requests,
                 "post",
                 return_value=FakeResponse(
                     {

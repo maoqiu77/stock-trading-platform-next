@@ -9,6 +9,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   FileTextIcon,
+  MessageSquareIcon,
   RefreshCcwIcon,
   SendIcon,
   SparklesIcon,
@@ -50,7 +51,6 @@ import {
 } from "@/features/platform/queries";
 
 const weekLabels = ["一", "二", "三", "四", "五", "六", "日"];
-type AiConfirmAction = "generate" | "chat";
 
 export function AiAdviceView() {
   const queryClient = useQueryClient();
@@ -58,8 +58,8 @@ export function AiAdviceView() {
   const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
   const [isRecoveringAiResponse, setIsRecoveringAiResponse] =
     React.useState(false);
-  const [confirmAction, setConfirmAction] =
-    React.useState<AiConfirmAction | null>(null);
+  const [confirmGenerate, setConfirmGenerate] = React.useState(false);
+  const chatContainerRef = React.useRef<HTMLDivElement>(null);
   const [calendarMonth, setCalendarMonth] = React.useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() + 1 };
@@ -148,6 +148,17 @@ export function AiAdviceView() {
     Boolean(aiSettingsQuery.data?.model);
   const selectedIsToday =
     Boolean(selectedCalendarDate) && selectedCalendarDate === calendarData?.today;
+  const chatMessages = record ? record.messages.slice(1) : [];
+  const pendingChatPrompt =
+    chatMutation.isPending || chatMutation.isError
+      ? chatMutation.variables?.trim()
+      : "";
+  React.useEffect(() => {
+    const container = chatContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [chatMessages.length, pendingChatPrompt, chatMutation.isPending]);
   const generationPending =
     externalMutation.isPending || isRecoveringAiResponse;
   let generateButtonLabel = "生成每日 AI 建议";
@@ -157,35 +168,21 @@ export function AiAdviceView() {
   if (isRecoveringAiResponse) {
     generateButtonLabel = "同步结果中";
   }
-  const aiError =
+  const generationError =
     isRecoveringAiResponse
       ? ""
-      : externalMutation.error?.message ??
-        chatMutation.error?.message ??
-        "";
-  const retryPending = generationPending || chatMutation.isPending;
-  const retryLastAiAction = React.useCallback(() => {
-    if (externalMutation.error) {
-      externalMutation.mutate();
-      return;
-    }
-    if (chatMutation.error) {
-      chatMutation.mutate(chatPrompt);
-    }
-  }, [chatMutation, chatPrompt, externalMutation]);
+      : externalMutation.error?.message ?? "";
   const aiStatus = aiReady ? "ready" : "missing-config";
   const aiUnavailableReason = !aiReady
     ? "请先在数据管理补齐 AI Base URL、模型和 API Key。"
     : "";
-  const confirmAiSend = React.useCallback(() => {
-    if (confirmAction === "generate") {
-      externalMutation.mutate();
+  const submitChat = () => {
+    const prompt = chatPrompt.trim();
+    if (!prompt || !aiReady || chatMutation.isPending) {
+      return;
     }
-    if (confirmAction === "chat") {
-      chatMutation.mutate(chatPrompt);
-    }
-    setConfirmAction(null);
-  }, [chatMutation, chatPrompt, confirmAction, externalMutation]);
+    chatMutation.mutate(prompt);
+  };
 
   return (
     <>
@@ -208,7 +205,7 @@ export function AiAdviceView() {
             <Button
               className="w-fit"
               variant="secondary"
-              onClick={() => setConfirmAction("generate")}
+              onClick={() => setConfirmGenerate(true)}
               disabled={!aiReady || generationPending}
             >
               <SparklesIcon data-icon="inline-start" />
@@ -219,22 +216,17 @@ export function AiAdviceView() {
                 {aiUnavailableReason}
               </div>
             ) : null}
-            {aiError ? (
+            {generationError ? (
               <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
                 <div className="flex min-w-0 items-start gap-2">
                   <AlertCircleIcon />
-                  <span className="min-w-0">{aiError}</span>
+                  <span className="min-w-0">{generationError}</span>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={retryLastAiAction}
-                  disabled={
-                    retryPending ||
-                    (Boolean(externalMutation.error) && !aiReady) ||
-                    (Boolean(chatMutation.error) &&
-                      (!chatPrompt.trim() || !aiReady))
-                  }
+                  onClick={() => externalMutation.mutate()}
+                  disabled={generationPending || !aiReady}
                 >
                   <RefreshCcwIcon data-icon="inline-start" />
                   重试
@@ -280,36 +272,6 @@ export function AiAdviceView() {
                     {record.content}
                   </pre>
                 </div>
-                {selectedIsToday ? (
-                  <FieldGroup>
-                    <Field>
-                      <FieldLabel htmlFor="ai-chat-prompt">追问</FieldLabel>
-                      <Textarea
-                        id="ai-chat-prompt"
-                        value={chatPrompt}
-                        onChange={(event) => setChatPrompt(event.target.value)}
-                        className="min-h-24"
-                        placeholder="例如：NOK 现在应该继续持有还是减仓？"
-                      />
-                    </Field>
-                    <Button
-                      onClick={() => setConfirmAction("chat")}
-                      disabled={
-                        !aiReady ||
-                        !chatPrompt.trim() ||
-                        chatMutation.isPending
-                      }
-                    >
-                      <SendIcon data-icon="inline-start" />
-                      {chatMutation.isPending ? "发送中" : "发送追问"}
-                    </Button>
-                    {aiUnavailableReason ? (
-                      <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                        {aiUnavailableReason}
-                      </div>
-                    ) : null}
-                  </FieldGroup>
-                ) : null}
               </div>
             ) : (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
@@ -320,6 +282,112 @@ export function AiAdviceView() {
         </Card>
       </div>
       <div className="flex flex-col gap-3">
+        <Card className="min-h-[560px]">
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquareIcon />
+              AI 对话
+            </CardTitle>
+            <CardDescription>
+              {record
+                ? selectedIsToday
+                  ? "基于今日建议继续追问"
+                  : `${record.date} 的历史对话`
+                : "生成今日 AI 建议后可继续追问"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+            <div
+              ref={chatContainerRef}
+              className="flex max-h-[520px] min-h-72 flex-1 flex-col gap-3 overflow-y-auto rounded-lg bg-muted/30 p-3"
+              aria-live="polite"
+            >
+              {chatMessages.length === 0 && !pendingChatPrompt ? (
+                <div className="m-auto max-w-64 text-center text-sm text-muted-foreground">
+                  {record
+                    ? "在下方输入问题，AI 的回答会显示在这里。"
+                    : "请先生成今日 AI 建议。"}
+                </div>
+              ) : null}
+              {chatMessages.map((message, index) => (
+                <ChatMessageBubble
+                  key={`${message.created_at}-${message.role}-${index}`}
+                  role={message.role}
+                  content={message.content}
+                  createdAt={message.created_at}
+                />
+              ))}
+              {pendingChatPrompt ? (
+                <ChatMessageBubble role="user" content={pendingChatPrompt} />
+              ) : null}
+              {chatMutation.isPending ? (
+                <div className="mr-auto flex max-w-[85%] items-center gap-2 rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <BotIcon className="size-4" />
+                  AI 正在回复…
+                </div>
+              ) : null}
+            </div>
+            {chatMutation.error ? (
+              <div className="flex items-start justify-between gap-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                <div className="flex min-w-0 items-start gap-2">
+                  <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
+                  <span className="min-w-0">{chatMutation.error.message}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    chatMutation.mutate(
+                      chatMutation.variables?.trim() || chatPrompt.trim()
+                    )
+                  }
+                  disabled={chatMutation.isPending || !aiReady}
+                >
+                  <RefreshCcwIcon data-icon="inline-start" />
+                  重试
+                </Button>
+              </div>
+            ) : null}
+            {selectedIsToday ? (
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="ai-chat-prompt">追问</FieldLabel>
+                  <Textarea
+                    id="ai-chat-prompt"
+                    value={chatPrompt}
+                    onChange={(event) => setChatPrompt(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        submitChat();
+                      }
+                    }}
+                    className="min-h-24 resize-none"
+                    placeholder="输入追问；Enter 发送，Shift + Enter 换行"
+                  />
+                </Field>
+                <Button
+                  onClick={submitChat}
+                  disabled={
+                    !aiReady || !chatPrompt.trim() || chatMutation.isPending
+                  }
+                >
+                  <SendIcon data-icon="inline-start" />
+                  {chatMutation.isPending ? "发送中" : "发送追问"}
+                </Button>
+                {aiUnavailableReason ? (
+                  <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                    {aiUnavailableReason}
+                  </div>
+                ) : null}
+              </FieldGroup>
+            ) : record ? (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                历史记录仅供查看；请选择今天继续追问。
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
@@ -397,53 +465,27 @@ export function AiAdviceView() {
             )}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>保存的新闻标题</CardTitle>
-            <CardDescription>生成建议时纳入上下文的新闻</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {record?.news.length ? (
-              record.news.slice(0, 8).map((item) => (
-                <div key={`${item.published}-${item.title}`} className="text-sm">
-                  <div>{item.title}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {item.source} {item.published}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                当前记录没有保存新闻标题。
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
     <AiSendConfirmDialog
-      action={confirmAction}
-      open={confirmAction !== null}
-      isPending={externalMutation.isPending || chatMutation.isPending}
-      onOpenChange={(open) => {
-        if (!open) {
-          setConfirmAction(null);
-        }
+      open={confirmGenerate}
+      isPending={externalMutation.isPending}
+      onOpenChange={setConfirmGenerate}
+      onConfirm={() => {
+        externalMutation.mutate();
+        setConfirmGenerate(false);
       }}
-      onConfirm={confirmAiSend}
     />
     </>
   );
 }
 
 function AiSendConfirmDialog({
-  action,
   open,
   isPending,
   onOpenChange,
   onConfirm,
 }: {
-  action: AiConfirmAction | null;
   open: boolean;
   isPending: boolean;
   onOpenChange: (open: boolean) => void;
@@ -462,18 +504,54 @@ function AiSendConfirmDialog({
           <div className="rounded-lg bg-muted/50 p-3">账户摘要：账户规模、现金、持仓成本和仓位状态。</div>
           <div className="rounded-lg bg-muted/50 p-3">持仓计划：股票池、目标仓位、止盈止损和资产类型。</div>
           <div className="rounded-lg bg-muted/50 p-3">交易流水：历史买卖记录和备注。</div>
-          <div className="rounded-lg bg-muted/50 p-3">行情与策略信号：报价、均线、RSI、回撤、平台信号和新闻标题。</div>
+          <div className="rounded-lg bg-muted/50 p-3">行情与策略信号：报价、均线、RSI、回撤和平台信号。</div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
           <Button onClick={onConfirm} disabled={isPending}>
-            {action === "chat" ? "确认发送追问" : "确认生成建议"}
+            确认生成建议
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ChatMessageBubble({
+  role,
+  content,
+  createdAt,
+}: {
+  role: "user" | "assistant";
+  content: string;
+  createdAt?: string;
+}) {
+  const isUser = role === "user";
+  return (
+    <div
+      className={
+        isUser
+          ? "ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-primary-foreground"
+          : "mr-auto max-w-[85%] rounded-2xl rounded-bl-sm bg-muted px-3 py-2"
+      }
+    >
+      <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
+        {content}
+      </pre>
+      {createdAt ? (
+        <div
+          className={
+            isUser
+              ? "mt-1 text-right text-[11px] text-primary-foreground/70"
+              : "mt-1 text-[11px] text-muted-foreground"
+          }
+        >
+          {createdAt}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -522,7 +600,6 @@ const AI_PROMPT_CONTEXT_ITEMS = [
   "交易流水：历史买卖记录和备注。",
   "策略配置：分层角色、加仓阈值、止损规则和风险参数。",
   "行情信号：报价、均线、RSI、回撤、日内走势和平台建议。",
-  "新闻标题：最近新闻标题和来源。",
   "北京时间上下文：当前交易时段和执行节奏建议。",
   "用户额外问题：生成日报或追问时输入的补充问题。",
 ];

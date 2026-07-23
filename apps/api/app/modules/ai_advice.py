@@ -2,17 +2,11 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
-from collections import defaultdict
-from dataclasses import dataclass
-from datetime import date, timedelta
-from email.utils import parsedate_to_datetime
-from html import unescape
+from datetime import date
 from typing import Any
-from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import requests
 from fastapi import HTTPException
 
 from app.core.database import get_state_payload, set_state_payload
@@ -36,14 +30,6 @@ from app.modules.trading_data import (
 APP_STATE_KEY = "ai_advice_v1"
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 AI_TIMEOUT_SECONDS = 120
-
-
-@dataclass
-class NewsItem:
-    title: str
-    source: str
-    published: str
-    link: str
 
 
 def load_ai_advice_state() -> dict[str, Any]:
@@ -131,7 +117,6 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
     watchlist = get_effective_watchlist()
     quotes = get_quotes(watchlist)
     intraday_context = build_intraday_market_context(watchlist)
-    news_items = fetch_yahoo_finance_news(state.get("stockPool", []))
     prompt = build_external_advice_prompt(
         brief=brief,
         summary=summary,
@@ -143,7 +128,6 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
         quotes=quotes,
         signals=signals,
         intraday_context=intraday_context,
-        news_items=news_items,
         context=context,
     )
     content = call_ai_response(
@@ -154,7 +138,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
                     "你是一个谨慎的美股半自动量化加减仓助手。你不能下单，不能承诺收益，"
                     "不能建议融资、期权、做空或杠杆。平台量化信号是重要输入，但你可以覆盖平台信号，"
                     "前提是必须解释依据。必须纳入账户、持仓、交易记录、止盈止损、趋势、均线、RSI、回撤、"
-                    "日内走势摘要、最近约 3 天新闻标题和北京时间交易时段。若行情报价、日内走势或量化信号的"
+                    "日内走势摘要和北京时间交易时段。若行情报价、日内走势或量化信号的"
                     "source 为 sample，必须明确说明实时行情不可用，不得把 sample 价格、MA、RSI 或信号当作真实依据。"
                     "输出中文，简洁清楚，适合用户手动确认。"
                 ),
@@ -182,7 +166,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
         "beijing_context": context,
         "extra_question": brief.strip(),
         "prompt": prompt,
-        "news": [news_item_to_dict(item) for item in news_items],
+        "news": [],
         "source": "external-ai",
     }
     advice_state = load_ai_advice_state()
@@ -212,7 +196,6 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     watchlist = get_effective_watchlist()
     quotes = get_quotes(watchlist)
     intraday_context = build_intraday_market_context(watchlist)
-    news_items = fetch_yahoo_finance_news(state.get("stockPool", []))
     user_message = {
         "role": "user",
         "content": clean_prompt,
@@ -228,7 +211,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
                 "content": (
                     "你是一个谨慎的美股半自动量化加减仓聊天助手。你不能下单，不能承诺收益，"
                     "不能建议融资、期权、做空或杠杆。优先回答用户最新问题，不要每次重复完整日报。"
-                    "只能基于系统提供的账户、持仓、交易、信号和新闻标题上下文回答；新闻不足时要说明不足。"
+                    "只能基于系统提供的账户、持仓、交易、行情和信号上下文回答。"
                     "若行情报价、日内走势或量化信号的 source 为 sample，必须说明实时行情不可用，"
                     "不得把 sample 价格、MA、RSI 或信号当作真实依据。"
                 ),
@@ -245,7 +228,6 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
                     quotes=quotes,
                     signals=signals,
                     intraday_context=intraday_context,
-                    news_items=news_items,
                     context=context,
                 ),
             },
@@ -262,7 +244,6 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
         "generated_at": context["beijing_time"],
         "messages": [*current_record.get("messages", []), user_message, assistant_message],
         "beijing_context": context,
-        "news": [news_item_to_dict(item) for item in news_items],
         "source": "external-ai",
     }
     advice_state = load_ai_advice_state()
@@ -326,7 +307,7 @@ def build_local_advice_content(
             "",
             f"- 当前交易时段判断：{context['estimated_session_status']}",
             f"- 操作节奏：{context['timing_suggestion']}",
-            "- 本地草案不调用外部模型，不包含联网新闻；接入 OpenAI-compatible 服务后可复用同一条日历记录结构。",
+            "- 本地草案不调用外部模型；接入 OpenAI-compatible 服务后可复用同一条日历记录结构。",
         ]
     )
     if actionable:
@@ -383,7 +364,6 @@ def build_external_advice_prompt(
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
-    news_items: list[NewsItem],
     context: dict[str, str],
 ) -> str:
     enriched_positions = enrich_rows_with_strategy_roles(positions, strategy_config)
@@ -395,7 +375,6 @@ def build_external_advice_prompt(
 - 你是谨慎的美股半自动量化加减仓助手。
 - 你不能下单，不能承诺收益，不能建议融资、期权、做空或杠杆。
 - 你可以同意平台信号，也可以覆盖平台信号；覆盖时必须明确写出“AI 覆盖平台信号”并给出可验证理由。
-- 新闻证据不足时，不要编造，只写“新闻不足以改变结论”。
 - 若提供日内走势摘要，必须用它判断今天的进场节奏：现在小额、等待回踩、分批，还是暂不动。
 
 你必须先理解并持续遵守以下投资框架：
@@ -405,7 +384,7 @@ def build_external_advice_prompt(
 4. 核心科技仓更偏长期持有，但仍需顺势、分批、避免过热追高。
 5. 卫星仓波动更大，必须更轻仓、更慢加、更早减仓降温。
 6. 每个标的的止盈线、止损线如果已设置，必须纳入最终判断；止损信号优先于普通加仓信号。
-7. 当价格接近日内高位、RSI 偏热或仓位高于目标时，默认不要追高；除非趋势、平台信号和新闻都支持，也只能小额。
+7. 当价格接近日内高位、RSI 偏热或仓位高于目标时，默认不要追高；除非趋势和平台信号都支持，也只能小额。
 8. 当价格接近日内低位但跌破关键支撑，不叫低吸，必须等待重新站稳。
 
 输出要求：
@@ -414,7 +393,7 @@ def build_external_advice_prompt(
 3. 如果“用户额外问题”不为空，请立即新增“额外问题回答”一节。
 4. 给出“账户总体判断”：现金、仓位是否激进、是否需要调整策略参数，控制在 3-5 行。
 5. 给出“标的决策表”：标的 / 分类 / 策略角色 / 平台信号 / AI 最终动作 / 买入触发价 / 失效或减仓价 / 金额或股数 / 一句话理由。
-6. 对需要操作、平台与 AI 不一致、止盈止损触发、新闻风险明显的标的，在“重点说明”里展开。
+6. 对需要操作、平台与 AI 不一致或止盈止损触发的标的，在“重点说明”里展开。
 7. 建仓和加仓必须分批；必须结合“日内走势摘要”判断现在小额、等待回踩、分批还是暂不动；不允许一次性打满目标仓位。
 8. 若价格跌破 MA120、触发止损线、仓位明显高于目标或 RSI 过热，必须优先讨论减仓或降温。
 9. 结合当前北京时间，提醒是现在执行还是等北京时间 21:30 后再确认。
@@ -459,9 +438,6 @@ def build_external_advice_prompt(
 
 量化加减仓信号：
 {json.dumps(signals, ensure_ascii=False, indent=2)}
-
-最近约 3 天 Yahoo Finance 新闻标题：
-{json.dumps([news_item_to_dict(item) for item in news_items], ensure_ascii=False, indent=2)}
 """
 
 
@@ -476,13 +452,12 @@ def build_chat_context_prompt(
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
-    news_items: list[NewsItem],
     context: dict[str, str],
 ) -> str:
     enriched_positions = enrich_rows_with_strategy_roles(positions, strategy_config)
     enriched_quotes = enrich_rows_with_strategy_roles(quotes, strategy_config)
     return f"""
-以下是当前账户、持仓、买卖操作、行情指标、量化信号和联网抓取的新闻标题上下文。
+以下是当前账户、持仓、买卖操作、行情指标和量化信号上下文。
 请先理解这些上下文，然后只回答后续对话里用户最新提出的问题。
 
 回答时必须遵守三层投资框架：核心 ETF 偏长期底仓，核心科技仓顺势分批，卫星仓更轻仓、更慢加、更早减仓降温。止损、跌破 MA120、仓位超目标和过热追高风险优先于普通加仓信号。
@@ -519,9 +494,6 @@ def build_chat_context_prompt(
 
 量化加减仓信号：
 {json.dumps(signals, ensure_ascii=False, indent=2)}
-
-最近约 3 天 Yahoo Finance 新闻标题：
-{json.dumps([news_item_to_dict(item) for item in news_items], ensure_ascii=False, indent=2)}
 """
 
 
@@ -753,91 +725,6 @@ def classify_intraday_entry_timing(range_position: float, recent_change_pct: flo
     return "分批观察"
 
 
-def fetch_yahoo_finance_news(
-    tickers: list[str],
-    days: int = 3,
-    per_day: int = 4,
-) -> list[NewsItem]:
-    clean = []
-    for ticker in tickers:
-        symbol = str(ticker).upper().strip()
-        if symbol and symbol not in clean:
-            clean.append(symbol)
-
-    feeds = [
-        f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
-        for ticker in clean
-    ]
-    if clean:
-        feeds.insert(
-            0,
-            f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={','.join(clean)}&region=US&lang=en-US",
-        )
-    feeds.append("https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EIXIC,%5EGSPC,QQQ&region=US&lang=en-US")
-
-    items: list[NewsItem] = []
-    for url in feeds:
-        try:
-            items.extend(parse_news_feed(url))
-        except Exception:
-            continue
-    deduped: list[NewsItem] = []
-    seen = set()
-    for item in items:
-        key = item.title.lower()
-        if key not in seen:
-            deduped.append(item)
-            seen.add(key)
-    return select_recent_news_by_day(deduped, days=days, per_day=per_day)
-
-
-def parse_news_feed(url: str) -> list[NewsItem]:
-    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-    response.raise_for_status()
-    root = ElementTree.fromstring(response.text)
-    items = []
-    for item in root.findall("./channel/item"):
-        title = xml_text(item, "title")
-        link = xml_text(item, "link")
-        published = format_pub_date(xml_text(item, "pubDate"))
-        if title:
-            items.append(
-                NewsItem(
-                    title=title,
-                    source="Yahoo Finance",
-                    published=published,
-                    link=link,
-                )
-            )
-    return items
-
-
-def select_recent_news_by_day(
-    items: list[NewsItem],
-    days: int = 3,
-    per_day: int = 4,
-) -> list[NewsItem]:
-    if days <= 0 or per_day <= 0:
-        return []
-    parsed = [(item, published_date(item.published)) for item in items]
-    dated = [(item, item_date) for item, item_date in parsed if item_date is not None]
-    if not dated:
-        return items[: days * per_day]
-
-    anchor = max(item_date for _, item_date in dated)
-    start = anchor - timedelta(days=days - 1)
-    groups: dict[date, list[NewsItem]] = defaultdict(list)
-    for item, item_date in dated:
-        if start <= item_date <= anchor:
-            groups[item_date].append(item)
-
-    selected: list[NewsItem] = []
-    for offset in range(days):
-        day = anchor - timedelta(days=offset)
-        selected.extend(groups.get(day, [])[:per_day])
-    return selected[: days * per_day]
-
-
 def normalize_conversation_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
     normalized = []
     for message in messages:
@@ -846,44 +733,6 @@ def normalize_conversation_messages(messages: list[dict[str, Any]]) -> list[dict
         if role in {"user", "assistant"} and content:
             normalized.append({"role": role, "content": content})
     return normalized
-
-
-def news_item_to_dict(item: NewsItem) -> dict[str, str]:
-    return {
-        "title": item.title,
-        "source": item.source,
-        "published": item.published,
-        "link": item.link,
-    }
-
-
-def xml_text(item: ElementTree.Element, tag: str) -> str:
-    found = item.find(tag)
-    if found is None or found.text is None:
-        return ""
-    return unescape(found.text.strip())
-
-
-def format_pub_date(raw: str) -> str:
-    if not raw:
-        return ""
-    try:
-        return parsedate_to_datetime(raw).strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return raw
-
-
-def published_date(published: str) -> date | None:
-    if not published:
-        return None
-    try:
-        return parsedate_to_datetime(published).date()
-    except Exception:
-        pass
-    try:
-        return date.fromisoformat(published[:10])
-    except Exception:
-        return None
 
 
 def beijing_now_context() -> dict[str, str]:

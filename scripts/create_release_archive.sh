@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-v0.1.0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PACKAGE_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$ROOT/package.json")"
+VERSION="${1:-v$PACKAGE_VERSION}"
 DIST_DIR="$ROOT/dist"
 ARCHIVE="$DIST_DIR/stock-trading-platform-next-${VERSION}.zip"
 

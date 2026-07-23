@@ -1,0 +1,19 @@
+cd /Users/yaochengzhi/Documents/股票交易平台-next
+
+1.先看改动
+git status --short
+git diff
+
+2.只添加这次要发的文件
+如果你这次只发 K 线修复，就只 add 相关文件；
+如果你确认当前工作区所有改动都要一起发布，再用：
+git add .
+
+3.再确认一遍已暂存内容
+git diff --cached --name-only
+
+4.提交
+git commit -m "release v0.1.6"
+
+5.发布
+npm run release:publish -- v0.1.6

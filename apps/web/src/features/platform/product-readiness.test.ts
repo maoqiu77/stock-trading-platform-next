@@ -32,6 +32,17 @@ test("AI advice view confirms private context before sending to AI", () => {
   assert.match(source, /行情与策略信号/);
 });
 
+test("AI advice follow-ups use an inline conversation without a confirmation dialog", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+
+  assert.match(source, /AI 对话/);
+  assert.match(source, /record\.messages\.slice\(1\)/);
+  assert.match(source, /AI 正在回复/);
+  assert.match(source, /chatMutation\.mutate\(prompt\)/);
+  assert.doesNotMatch(source, /确认发送追问/);
+  assert.doesNotMatch(source, /setConfirmAction\("chat"\)/);
+});
+
 test("AI advice view shows summarized prompt context without duplicate chat history", () => {
   const source = readSource("./views/ai-advice-view.tsx");
 
@@ -40,6 +51,8 @@ test("AI advice view shows summarized prompt context without duplicate chat hist
   assert.match(source, /账户摘要/);
   assert.match(source, /持仓计划/);
   assert.match(source, /行情信号/);
+  assert.doesNotMatch(source, /新闻标题/);
+  assert.doesNotMatch(source, /保存的新闻/);
   assert.doesNotMatch(source, /对话记录/);
   assert.doesNotMatch(source, /AI- prompt/);
 });

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 import zipfile
@@ -9,6 +10,15 @@ from app.modules import app_update
 
 
 class AppUpdateTest(unittest.TestCase):
+    def test_project_package_versions_stay_in_sync(self) -> None:
+        root = Path(__file__).resolve().parents[3]
+        root_package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+        web_package = json.loads(
+            (root / "apps" / "web" / "package.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(root_package["version"], web_package["version"])
+
     def test_version_compare_uses_semver_parts(self) -> None:
         self.assertTrue(app_update.is_newer_version("v0.1.1", "v0.1.0"))
         self.assertTrue(app_update.is_newer_version("v0.10.0", "v0.9.9"))
